@@ -11,6 +11,8 @@ interface MembersListProps {
 const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => {
   const [members, setMembers] = useState<Member[]>(() => StorageService.getMembers());
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [balanceUpdateMember, setBalanceUpdateMember] = useState<Member | null>(null);
+  const [balanceType, setBalanceType] = useState<'CREDIT' | 'DEBIT'>('CREDIT');
   const [editingMember, setEditingMember] = useState<Partial<Member> | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'ALL' | MemberStatus>('ALL');
@@ -32,6 +34,7 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
       role: UserRole.MEMBER,
       dateOfJoining: new Date().toISOString().split('T')[0],
       balance: 0,
+      previousBalance: 0,
       password: 'password123',
       address: '',
       dob: ''
@@ -78,6 +81,16 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
     setMembers(StorageService.getMembers());
     refreshDB();
     setIsModalOpen(false);
+  };
+
+  const handleSaveBalance = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!balanceUpdateMember) return;
+
+    StorageService.updateMember(balanceUpdateMember);
+    setMembers(StorageService.getMembers());
+    refreshDB();
+    setBalanceUpdateMember(null);
   };
 
   const handleDelete = (memberId: string) => {
@@ -177,6 +190,12 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
                   </td>
                   <td className="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
                     <div className="flex items-center justify-end gap-3">
+                      {(currentUser.role === UserRole.SUPER_ADMIN || currentUser.role === UserRole.ADMIN) && (
+                         <button onClick={() => {
+                           setBalanceUpdateMember(member);
+                           setBalanceType((member.previousBalance || 0) < 0 ? 'DEBIT' : 'CREDIT');
+                         }} className="text-emerald-600 font-bold text-xs uppercase hover:underline">Set B/F</button>
+                      )}
                       <button onClick={() => openModal(member)} className="text-indigo-600 font-bold text-xs uppercase hover:underline">Edit</button>
                       {currentUser.role === UserRole.SUPER_ADMIN && member.role !== UserRole.SUPER_ADMIN && (
                         <button onClick={() => handleDelete(member.id)} className="text-red-600 font-bold text-xs uppercase hover:underline">Delete</button>
@@ -189,6 +208,96 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
           </table>
         </div>
       </div>
+
+      {balanceUpdateMember && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200">
+            <div className={`p-6 text-white flex justify-between items-center transition-colors ${balanceType === 'DEBIT' ? 'bg-red-600' : 'bg-emerald-600'}`}>
+              <h3 className="font-black uppercase tracking-widest text-sm">Update Balance B/F</h3>
+              <button onClick={() => setBalanceUpdateMember(null)} className="hover:opacity-75 transition-opacity">
+                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <form onSubmit={handleSaveBalance} className="p-8 space-y-6">
+              <div className="text-center mb-6">
+                <img src={`https://ui-avatars.com/api/?name=${encodeURIComponent(balanceUpdateMember.fullName)}&background=random`} className="w-16 h-16 rounded-full shadow-lg mx-auto mb-3" alt="" />
+                <h4 className="font-bold text-slate-900 text-lg">{balanceUpdateMember.fullName}</h4>
+                <p className="text-xs font-mono text-slate-400 uppercase tracking-widest">{balanceUpdateMember.membershipId}</p>
+              </div>
+              
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Balance Type</label>
+                <div className="flex bg-slate-100 p-1 rounded-xl mb-4">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setBalanceType('CREDIT');
+                      setBalanceUpdateMember({
+                        ...balanceUpdateMember, 
+                        previousBalance: Math.abs(balanceUpdateMember.previousBalance || 0)
+                      });
+                    }}
+                    className={`flex-1 py-2 rounded-lg text-xs font-black uppercase transition-all ${
+                      balanceType === 'CREDIT' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    Credit (Surplus)
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setBalanceType('DEBIT');
+                      setBalanceUpdateMember({
+                        ...balanceUpdateMember, 
+                        previousBalance: -Math.abs(balanceUpdateMember.previousBalance || 0)
+                      });
+                    }}
+                    className={`flex-1 py-2 rounded-lg text-xs font-black uppercase transition-all ${
+                      balanceType === 'DEBIT' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    Debit (Owing)
+                  </button>
+                </div>
+
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Amount (₦)</label>
+                <div className="relative">
+                  <span className={`absolute inset-y-0 left-0 flex items-center pl-4 font-bold ${balanceType === 'DEBIT' ? 'text-red-500' : 'text-emerald-500'}`}>₦</span>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    min="0"
+                    autoFocus
+                    value={Math.abs(balanceUpdateMember.previousBalance || 0) || ''} 
+                    onChange={e => {
+                      const val = e.target.value ? parseFloat(e.target.value) : 0;
+                      setBalanceUpdateMember({
+                        ...balanceUpdateMember, 
+                        previousBalance: balanceType === 'DEBIT' ? -Math.abs(val) : Math.abs(val)
+                      });
+                    }} 
+                    className={`w-full pl-10 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-xl font-mono text-xl font-bold focus:ring-2 outline-none ${
+                      balanceType === 'DEBIT' ? 'text-red-600 focus:ring-red-500' : 'text-emerald-600 focus:ring-emerald-500'
+                    }`}
+                    placeholder="0.00"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400 mt-2 font-medium">
+                  {balanceType === 'CREDIT' 
+                    ? 'Member has a positive balance brought forward.' 
+                    : 'Member owes money from the previous system.'}
+                </p>
+              </div>
+
+              <button type="submit" className={`w-full text-white font-black py-4 rounded-2xl shadow-xl transition-all uppercase tracking-widest text-xs ${
+                balanceType === 'DEBIT' ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'
+              }`}>
+                Update Balance
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {isModalOpen && editingMember && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
@@ -244,6 +353,17 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
                   <select value={editingMember.status} onChange={e => setEditingMember({...editingMember, status: e.target.value as any})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold">
                     {Object.values(MemberStatus).map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Opening Balance (₦)</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    value={editingMember.previousBalance ?? ''} 
+                    onChange={e => setEditingMember({...editingMember, previousBalance: e.target.value ? parseFloat(e.target.value) : 0})} 
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-mono" 
+                  />
+                  <p className="text-[9px] text-slate-400 mt-1 font-bold uppercase">Initial/Brought Forward Balance</p>
                 </div>
               </div>
               <button type="submit" className="w-full bg-indigo-600 text-white font-black py-4 rounded-2xl hover:bg-indigo-700 shadow-xl transition-all uppercase tracking-widest text-xs">

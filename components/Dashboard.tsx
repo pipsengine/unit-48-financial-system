@@ -16,13 +16,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const agingMetrics = useMemo(() => {
     const userEntries = ledger.filter(e => e.memberId === user.id);
     
+    const previousBalance = user.previousBalance || 0;
+    const previousCredit = previousBalance > 0 ? previousBalance : 0;
+    const previousDebit = previousBalance < 0 ? Math.abs(previousBalance) : 0;
+
     const totalAgingCredit = userEntries
       .filter(e => e.referenceType === 'PAYMENT')
-      .reduce((sum, e) => sum + e.amount, 0);
+      .reduce((sum, e) => sum + e.amount, 0) + previousCredit;
 
     const totalAgingDebit = userEntries
       .filter(e => e.referenceType !== 'PAYMENT')
-      .reduce((sum, e) => sum + e.amount, 0);
+      .reduce((sum, e) => sum + e.amount, 0) + previousDebit;
 
     const currentAgingBalance = totalAgingCredit - totalAgingDebit;
     const totalOutstandingAging = user.balance < 0 ? Math.abs(user.balance) : 0;
@@ -33,7 +37,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
       currentAgingBalance,
       totalOutstandingAging
     };
-  }, [ledger, user.id, user.balance]);
+  }, [ledger, user.id, user.balance, user.previousBalance]);
 
   const getMemberStatus = (member: Member) => {
     const currentYear = new Date().getFullYear();

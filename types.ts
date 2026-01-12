@@ -59,6 +59,7 @@ export interface Member {
   status: MemberStatus;
   role: UserRole;
   balance: number;
+  previousBalance?: number;
   password?: string;
   address?: string;
   dob?: string;

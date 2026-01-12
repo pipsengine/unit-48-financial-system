@@ -48,6 +48,15 @@ export const StorageService = {
       }
 
       StorageService.isReady = true;
+      
+      // Migration: Add previous_balance column if not exists
+      try {
+        db.run("ALTER TABLE member ADD COLUMN previous_balance REAL DEFAULT 0");
+        StorageService.save();
+      } catch (e) {
+        // Column likely already exists, ignore
+      }
+
       StorageService.checkAndApplyAnnualDues();
     } catch (err) {
       console.error("StorageService.init failed critically:", err);
@@ -81,6 +90,7 @@ export const StorageService = {
         password TEXT,
         address TEXT,
         dob TEXT,
+        previous_balance REAL DEFAULT 0,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -225,8 +235,9 @@ export const StorageService = {
         FROM ledger_entry 
         WHERE member_id = ?
       `, [m.id]);
-      const balance = res[0].values[0][0];
-      return { ...m, balance: Number(balance) };
+      const ledgerBalance = res[0].values[0][0];
+      const previousBalance = m.previousBalance || 0;
+      return { ...m, balance: Number(ledgerBalance) + previousBalance };
     });
   },
 
@@ -241,9 +252,9 @@ export const StorageService = {
   updateMember: (member: Member) => {
     if (!db) return;
     db.run(`
-      INSERT OR REPLACE INTO member (id, membership_id, email, phone, full_name, date_of_joining, status, role, password, address, dob)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?)
-    `, [member.id, member.membershipId, member.email, member.phone, member.fullName, member.dateOfJoining, member.status, member.role, member.password, member.address, member.dob]);
+      INSERT OR REPLACE INTO member (id, membership_id, email, phone, full_name, date_of_joining, status, role, password, address, dob, previous_balance)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    `, [member.id, member.membershipId, member.email, member.phone, member.fullName, member.dateOfJoining, member.status, member.role, member.password, member.address, member.dob, member.previousBalance || 0]);
     StorageService.save();
     StorageService.logAudit(member.id, 'UPDATE_MEMBER', 'MEMBER', member.id);
   },

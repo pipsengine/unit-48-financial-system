@@ -73,7 +73,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword, showDefaultCre
                   value={pin}
                   onChange={e => setPin(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition-all outline-none font-mono font-bold text-slate-700"
-                  placeholder="e.g. U48-001"
+                  placeholder="00-00000"
                 />
               </div>
             </div>

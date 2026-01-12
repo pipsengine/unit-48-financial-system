@@ -22,9 +22,11 @@ const Reports: React.FC = () => {
   // Financial Calculations
   const financialMetrics = useMemo(() => {
     // 1. Total Aging Credit (Total of all payments ever made - Unit Liquidity)
+    const totalPreviousCredit = members.reduce((sum, m) => sum + (m.previousBalance && m.previousBalance > 0 ? m.previousBalance : 0), 0);
+    
     const totalAgingCredit = ledger
       .filter(e => e.referenceType === 'PAYMENT')
-      .reduce((sum, e) => sum + e.amount, 0);
+      .reduce((sum, e) => sum + e.amount, 0) + totalPreviousCredit;
 
     // 2. Total Credit for the Year
     const totalCreditYear = ledger
