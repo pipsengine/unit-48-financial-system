@@ -33,6 +33,9 @@ export const StorageService = {
         try {
           const u8 = new Uint8Array(atob(savedDb).split('').map(c => c.charCodeAt(0)));
           db = new SQL.Database(u8);
+          // Ensure schema and config are up to date
+          StorageService.createSchema();
+          StorageService.ensureSeeded();
         } catch (e) {
           console.warn("Corrupt database found in storage, resetting...", e);
           db = new SQL.Database();
@@ -185,6 +188,59 @@ export const StorageService = {
     } catch (e) {
       db.run("ROLLBACK;");
       console.error("Seeding failed:", e);
+    }
+  },
+
+  ensureSeeded: () => {
+    if (!db) return;
+    try {
+      // Check if dues_config is empty (migration fix)
+      try {
+        const res = db.exec("SELECT count(*) FROM dues_config");
+        if (res[0].values[0][0] === 0) {
+          console.log("Seeding missing dues_config...");
+          db.run("BEGIN TRANSACTION;");
+          MOCK_DUES_CONFIG.forEach(d => {
+              db.run("INSERT OR IGNORE INTO dues_config (id, due_type, billing_frequency, amount, effective_start_date) VALUES (?,?,?,?,?)", 
+              [d.id, d.dueType, d.billingFrequency, d.amount, d.effectiveStartDate]);
+          });
+          db.run("COMMIT;");
+          StorageService.save();
+        }
+      } catch (e) {
+        // Table might not exist if createSchema failed
+      }
+
+      // Sync missing ledger entries from verified payments
+      try {
+         const payments = StorageService.getData<Payment>('payment');
+         const ledger = StorageService.getData<LedgerEntry>('ledger_entry');
+         
+         const existingRefs = new Set(ledger.filter(e => e.referenceType === 'PAYMENT').map(e => e.referenceId));
+         const missingPayments = payments.filter(p => p.status === 'VERIFIED' && !existingRefs.has(p.id));
+         
+         if (missingPayments.length > 0) {
+            console.log(`Syncing ${missingPayments.length} missing payments to ledger...`);
+            db.run("BEGIN TRANSACTION;");
+            missingPayments.forEach((p) => {
+               const id = `l-pay-sync-${p.id}`;
+               db.run(`
+                 INSERT INTO ledger_entry (id, entry_date, effective_date, description, debit_account_id, credit_account_id, amount, member_id, reference_type, reference_id)
+                 VALUES (?,?,?,?,?,?,?,?,?,?)
+               `, [
+                 id, p.paymentDate, p.paymentDate, 
+                 `Payment (${p.paymentType || 'General'}): ${p.referenceNumber}${p.notes ? ` - ${p.notes}` : ''}`,
+                 'acc-bank', 'acc-member-receivable', p.amount, p.memberId, 'PAYMENT', p.id
+               ]);
+            });
+            db.run("COMMIT;");
+            StorageService.save();
+         }
+      } catch (e) {
+         console.error("Ledger sync failed:", e);
+      }
+    } catch (e) {
+      console.error("ensureSeeded failed:", e);
     }
   },
 

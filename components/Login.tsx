@@ -17,7 +17,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword, showDefaultCre
   };
 
   const fillDemo = () => {
-    setPin('U48-002');
+    setPin('U48-001');
     setPassword('password123');
   };
 
