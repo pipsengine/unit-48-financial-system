@@ -1,5 +1,6 @@
 
 import initSqlJs from 'sql.js';
+import sqlWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import { 
   Member, LedgerEntry, Payment, Expense, DueConfig, AuditLog, 
   MemberStatus, UserRole, PaymentStatus, ExpenseStatus, DueType, BillingFrequency 
@@ -8,7 +9,6 @@ import { MOCK_MEMBERS, MOCK_DUES_CONFIG, MOCK_PAYMENTS, MOCK_EXPENSES, MOCK_LEDG
 
 let db: any = null;
 const DB_STORAGE_KEY = 'u48_sqlite_db';
-const SQL_VERSION = '1.12.0';
 
 export const StorageService = {
   isReady: false,
@@ -17,9 +17,8 @@ export const StorageService = {
     if (StorageService.isReady) return;
 
     try {
-      // Manual fetch of WASM to prevent 'fs.readFileSync' errors and version mismatch LinkErrors.
-      // We use unpkg for the binary to ensure we get the exact 1.12.0 version.
-      const wasmUrl = `https://unpkg.com/sql.js@${SQL_VERSION}/dist/sql-wasm.wasm`;
+      // Use local WASM file bundled by Vite
+      const wasmUrl = sqlWasmUrl;
       const wasmResponse = await fetch(wasmUrl);
       if (!wasmResponse.ok) throw new Error(`Failed to fetch SQL WASM binary from ${wasmUrl}`);
       const wasmBinary = await wasmResponse.arrayBuffer();
@@ -249,6 +248,40 @@ export const StorageService = {
     StorageService.logAudit(member.id, 'UPDATE_MEMBER', 'MEMBER', member.id);
   },
 
+  deleteMember: (memberId: string) => {
+    if (!db) {
+      console.error("Database not initialized");
+      return;
+    }
+    if (!memberId || typeof memberId !== 'string') {
+      console.error("Invalid memberId for deletion:", memberId);
+      return;
+    }
+
+    try {
+      console.log(`Attempting to delete member with ID: ${memberId}`);
+      // Check if member exists first
+    const check = db.exec("SELECT id, role FROM member WHERE id = ?", [memberId]);
+    if (check.length === 0 || check[0].values.length === 0) {
+      console.warn(`Member ${memberId} not found, skipping delete.`);
+      return;
+    }
+
+    const memberRole = check[0].values[0][1];
+    if (memberRole === UserRole.SUPER_ADMIN) {
+      console.warn("Cannot delete SUPER_ADMIN account.");
+      return;
+    }
+
+    db.run("DELETE FROM member WHERE id = ?", [memberId]);
+      StorageService.save();
+      StorageService.logAudit('SYSTEM', 'DELETE_MEMBER', 'MEMBER', memberId);
+      console.log(`Member ${memberId} successfully deleted.`);
+    } catch (e) {
+      console.error("Error executing deleteMember:", e);
+    }
+  },
+
   addPayment: (payment: Payment, adminId: string) => {
     if (!db) return;
     db.run(`
@@ -286,7 +319,7 @@ export const StorageService = {
       VALUES (?,?,?,?,?,?,?,?,?,?)
     `, [
       id, payment.paymentDate, payment.paymentDate, 
-      `Payment (${payment.paymentType || 'General'}): ${payment.referenceNumber}`,
+      `Payment (${payment.paymentType || 'General'}): ${payment.referenceNumber}${payment.notes ? ` - ${payment.notes}` : ''}`,
       'acc-bank', 'acc-member-receivable', payment.amount, payment.memberId, 'PAYMENT', payment.id
     ]);
   },

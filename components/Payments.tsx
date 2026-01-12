@@ -21,6 +21,7 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
     paymentMethod: 'BANK_TRANSFER',
     paymentType: 'National Due',
     referenceNumber: '',
+    notes: ''
   });
 
   const isAdmin = user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN;
@@ -59,6 +60,7 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
       paymentType: newPayment.paymentType,
       referenceNumber: newPayment.referenceNumber,
       status: PaymentStatus.VERIFIED, // Direct payments are verified immediately
+      notes: newPayment.notes,
       createdAt: new Date().toISOString()
     };
 
@@ -72,6 +74,7 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
       paymentMethod: 'BANK_TRANSFER',
       paymentType: 'National Due',
       referenceNumber: '',
+      notes: ''
     });
   };
 
@@ -83,7 +86,9 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
     'Development Levy',
     'Project Support',
     'Command Refreshment',
-    'Donations'
+    'Donations',
+    'Historical Payment',
+    'Opening Balance'
   ];
 
   return (
@@ -252,6 +257,16 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                       onChange={e => setNewPayment({...newPayment, referenceNumber: e.target.value})}
                       className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
                       placeholder="e.g. TRNX_2026_01"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Notes / Description</label>
+                    <textarea 
+                      value={newPayment.notes}
+                      onChange={e => setNewPayment({...newPayment, notes: e.target.value})}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                      placeholder="Optional details about this payment..."
+                      rows={2}
                     />
                   </div>
                </div>

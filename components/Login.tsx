@@ -21,7 +21,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-indigo-900 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 to-slate-900">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8 space-y-8 m-4 animate-in fade-in zoom-in duration-300">
         <div className="text-center space-y-2">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-100 text-indigo-600 rounded-xl mb-2 shadow-inner">

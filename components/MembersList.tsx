@@ -5,9 +5,10 @@ import { StorageService } from '../services/storageService';
 
 interface MembersListProps {
   refreshDB: () => void;
+  currentUser: Member;
 }
 
-const MembersList: React.FC<MembersListProps> = ({ refreshDB }) => {
+const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => {
   const [members, setMembers] = useState<Member[]>(() => StorageService.getMembers());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<Partial<Member> | null>(null);
@@ -31,7 +32,7 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB }) => {
       role: UserRole.MEMBER,
       dateOfJoining: new Date().toISOString().split('T')[0],
       balance: 0,
-      password: '',
+      password: 'password123',
       address: '',
       dob: ''
     });
@@ -47,6 +48,28 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB }) => {
       return;
     }
 
+    // Credential Validation
+    if (!editingMember.id) {
+      // Check uniqueness for new members
+      const existingId = members.find(m => m.membershipId === editingMember.membershipId);
+      if (existingId) {
+        alert('Membership ID already exists. Please use a unique ID.');
+        return;
+      }
+      const existingEmail = members.find(m => m.email === editingMember.email);
+      if (existingEmail) {
+        alert('Email address already registered.');
+        return;
+      }
+    }
+
+    // Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (editingMember.email && !emailRegex.test(editingMember.email)) {
+      alert('Please enter a valid email address.');
+      return;
+    }
+
     const updatedMember = editingMember.id 
       ? (editingMember as Member) 
       : { ...(editingMember as Omit<Member, 'id'>), id: `m-${Date.now()}` };
@@ -57,6 +80,14 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB }) => {
     setIsModalOpen(false);
   };
 
+  const handleDelete = (memberId: string) => {
+    if (window.confirm('Are you sure you want to delete this member? This action cannot be undone.')) {
+      StorageService.deleteMember(memberId);
+      setMembers(StorageService.getMembers());
+      refreshDB();
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -64,13 +95,15 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB }) => {
           <h2 className="text-2xl font-bold text-slate-900">Member Management</h2>
           <p className="text-slate-500">Managing {members.length} registered Unit 48 personnel.</p>
         </div>
-        <button 
-          onClick={() => openModal()}
-          className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:bg-indigo-700 transition-all flex items-center gap-2"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-          Add New Member
-        </button>
+        {currentUser.role === UserRole.SUPER_ADMIN && (
+          <button 
+            onClick={() => openModal()}
+            className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:bg-indigo-700 transition-all flex items-center gap-2"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+            Add New Member
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -143,7 +176,12 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB }) => {
                     ₦{member.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </td>
                   <td className="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => openModal(member)} className="text-indigo-600 font-bold text-xs uppercase hover:underline">Edit</button>
+                    <div className="flex items-center justify-end gap-3">
+                      <button onClick={() => openModal(member)} className="text-indigo-600 font-bold text-xs uppercase hover:underline">Edit</button>
+                      {currentUser.role === UserRole.SUPER_ADMIN && member.role !== UserRole.SUPER_ADMIN && (
+                        <button onClick={() => handleDelete(member.id)} className="text-red-600 font-bold text-xs uppercase hover:underline">Delete</button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

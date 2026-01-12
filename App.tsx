@@ -4,6 +4,7 @@ import { UserRole, Member } from './types';
 import { StorageService } from './services/storageService';
 import Login from './components/Login';
 import ForgotPassword from './components/ForgotPassword';
+import ForcePasswordReset from './components/ForcePasswordReset';
 import Dashboard from './components/Dashboard';
 import Sidebar from './components/Sidebar';
 import MembersList from './components/MembersList';
@@ -42,13 +43,35 @@ const App: React.FC = () => {
   }, [dbVersion]);
 
   const handleLogin = (membershipId: string, password: string) => {
+    // Check for lockout
+    const lockoutUntil = localStorage.getItem('u48_lockout');
+    if (lockoutUntil && parseInt(lockoutUntil) > Date.now()) {
+      const remaining = Math.ceil((parseInt(lockoutUntil) - Date.now()) / 1000);
+      alert(`System locked due to excessive failed attempts. Please try again in ${remaining} seconds.`);
+      return;
+    }
+
     const members = StorageService.getMembers();
     const user = members.find(m => m.membershipId === membershipId);
-    if (user && (user.password === password || password === 'password123')) { 
+    // Allow login if password matches, or if user has NO password (legacy/bug) and uses default
+    if (user && (user.password === password || (!user.password && password === 'password123'))) { 
       setCurrentUser(user);
       localStorage.setItem('u48_session', JSON.stringify(user));
+      // Clear failed attempts on successful login
+      localStorage.removeItem('u48_login_attempts');
+      localStorage.removeItem('u48_lockout');
     } else {
-      alert('Invalid PIN or Password.');
+      // Handle failed attempt
+      const attempts = parseInt(localStorage.getItem('u48_login_attempts') || '0') + 1;
+      localStorage.setItem('u48_login_attempts', attempts.toString());
+
+      if (attempts >= 3) {
+        localStorage.setItem('u48_lockout', (Date.now() + 30000).toString()); // 30s lockout
+        localStorage.removeItem('u48_login_attempts');
+        alert('Too many failed attempts. System locked for 30 seconds.');
+      } else {
+        alert(`Invalid PIN or Password. Attempt ${attempts} of 3.`);
+      }
     }
   };
 
@@ -91,6 +114,20 @@ const App: React.FC = () => {
     return <Login onLogin={handleLogin} onForgotPassword={() => setShowForgotPassword(true)} />;
   }
 
+  // Force password reset if the user is still using the default password
+  if (currentUser.password === 'password123' || !currentUser.password) {
+    return (
+      <ForcePasswordReset 
+        user={currentUser} 
+        onSuccess={(updatedUser) => {
+          setCurrentUser(updatedUser);
+          localStorage.setItem('u48_session', JSON.stringify(updatedUser));
+        }}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   const MEMBER_ALLOWED_TABS = ['dashboard', 'ledger'];
 
   const renderContent = () => {
@@ -103,7 +140,7 @@ const App: React.FC = () => {
 
     switch (activeTab) {
       case 'dashboard': return <Dashboard user={currentUser} setActiveTab={setActiveTab} refreshDB={refreshDB} />;
-      case 'members': return <MembersList refreshDB={refreshDB} />;
+      case 'members': return <MembersList refreshDB={refreshDB} currentUser={currentUser} />;
       case 'payments': return <Payments user={currentUser} refreshDB={refreshDB} />;
       case 'expenses': return <Expenses user={currentUser} refreshDB={refreshDB} />;
       case 'ledger': return <Ledger user={currentUser} setActiveTab={setActiveTab} />;
