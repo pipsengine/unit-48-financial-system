@@ -49,8 +49,10 @@ const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab, onLogo
       <aside className={`fixed inset-y-0 left-0 w-64 bg-white border-r border-slate-200 z-50 transform transition-transform duration-300 lg:relative lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="h-full flex flex-col p-6">
           <div className="flex items-center gap-3 mb-10 px-2">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-indigo-200 shadow-lg">48</div>
-            <span className="text-xl font-black tracking-tighter text-slate-800">Unit 48</span>
+            <div className="w-12 h-12 flex-shrink-0">
+              <img src="/Logo.png" alt="Logo" className="w-full h-full object-contain drop-shadow-md" />
+            </div>
+            <span className="text-xl font-black tracking-tighter text-slate-800 leading-tight">Unit 48<br/><span className="text-indigo-600 text-sm font-bold">Payment System</span></span>
           </div>
 
           <nav className="flex-1 space-y-1 overflow-y-auto">

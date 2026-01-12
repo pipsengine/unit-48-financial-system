@@ -86,8 +86,8 @@ const App: React.FC = () => {
   if (isInitializing) {
     return (
       <div className="min-h-screen bg-indigo-950 flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] shadow-2xl flex items-center justify-center mb-8 animate-bounce">
-          <span className="text-white font-black text-4xl">48</span>
+        <div className="w-24 h-24 mb-8 animate-bounce">
+          <img src="/Logo.png" alt="Logo" className="w-full h-full object-contain drop-shadow-2xl" />
         </div>
         <div className="space-y-4">
           <h2 className="text-white text-2xl font-black uppercase tracking-widest animate-pulse">Initializing SQLite Engine</h2>
@@ -111,7 +111,13 @@ const App: React.FC = () => {
     if (showForgotPassword) {
       return <ForgotPassword onBack={() => setShowForgotPassword(false)} />;
     }
-    return <Login onLogin={handleLogin} onForgotPassword={() => setShowForgotPassword(true)} />;
+
+    // Check if Super Admin still has default password to show/hide helper card
+    const members = StorageService.getMembers();
+    const superAdmin = members.find(m => m.membershipId === 'U48-001');
+    const showDefaultCredentials = superAdmin ? superAdmin.password === 'password123' : false;
+
+    return <Login onLogin={handleLogin} onForgotPassword={() => setShowForgotPassword(true)} showDefaultCredentials={showDefaultCredentials} />;
   }
 
   // Force password reset if the user is still using the default password

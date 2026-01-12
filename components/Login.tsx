@@ -4,11 +4,12 @@ import React, { useState } from 'react';
 interface LoginProps {
   onLogin: (id: string, password: string) => void;
   onForgotPassword: () => void;
+  showDefaultCredentials?: boolean;
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword }) => {
-  const [pin, setPin] = useState('U48-001');
-  const [password, setPassword] = useState('password123');
+const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword, showDefaultCredentials = true }) => {
+  const [pin, setPin] = useState('');
+  const [password, setPassword] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -16,7 +17,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword }) => {
   };
 
   const fillDemo = () => {
-    setPin('U48-001');
+    setPin('U48-002');
     setPassword('password123');
   };
 
@@ -24,38 +25,39 @@ const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword }) => {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 to-slate-900">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8 space-y-8 m-4 animate-in fade-in zoom-in duration-300">
         <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-100 text-indigo-600 rounded-xl mb-2 shadow-inner">
-            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-            </svg>
+          <div className="inline-flex items-center justify-center w-24 h-24 mb-4">
+            <img src="/Logo.png" alt="Unit 48 Logo" className="w-full h-full object-contain drop-shadow-xl" />
           </div>
-          <h2 className="text-3xl font-extrabold text-slate-900 tracking-tighter">Unit 48 Portal</h2>
+          <h2 className="text-3xl font-extrabold text-slate-900 tracking-tighter">Unit 48 Payment System</h2>
           <p className="text-slate-500 font-medium italic text-sm">Financial Management & Registry</p>
         </div>
 
-        <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 space-y-2">
-          <div className="flex items-center gap-2 text-amber-800 font-black text-[10px] uppercase tracking-widest">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            System Default Credentials
-          </div>
-          <div className="grid grid-cols-2 gap-4 text-xs">
-            <div>
-              <p className="text-slate-400 font-bold uppercase text-[9px]">Member ID</p>
-              <p className="font-mono font-bold text-amber-900">U48-001</p>
+        {showDefaultCredentials && (
+          <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 space-y-2">
+            <div className="flex items-center gap-2 text-amber-800 font-black text-[10px] uppercase tracking-widest">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              System Default Credentials
             </div>
-            <div>
-              <p className="text-slate-400 font-bold uppercase text-[9px]">Password / PIN</p>
-              <p className="font-mono font-bold text-amber-900">password123</p>
+            <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-amber-200/50">
+              <div className="space-y-0.5">
+                <p className="text-[10px] text-slate-400 font-semibold uppercase">Super Admin ID</p>
+                <code className="text-xs font-mono font-bold text-slate-700">U48-001</code>
+              </div>
+              <div className="h-8 w-px bg-slate-100 mx-2"></div>
+              <div className="space-y-0.5 text-right">
+                <p className="text-[10px] text-slate-400 font-semibold uppercase">Initial Password</p>
+                <code className="text-xs font-mono font-bold text-slate-700">password123</code>
+              </div>
             </div>
+            <button 
+              type="button"
+              onClick={fillDemo}
+              className="w-full text-center text-xs text-amber-700 hover:text-amber-800 font-semibold underline decoration-amber-300 hover:decoration-amber-500 transition-all cursor-pointer"
+            >
+              Auto-fill these credentials
+            </button>
           </div>
-          <button 
-            type="button"
-            onClick={fillDemo}
-            className="w-full mt-2 text-[9px] font-black uppercase tracking-widest bg-amber-200/50 hover:bg-amber-200 text-amber-900 py-1.5 rounded-lg transition-colors"
-          >
-            Auto-fill Demo Details
-          </button>
-        </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-4">

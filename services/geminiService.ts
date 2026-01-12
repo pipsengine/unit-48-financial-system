@@ -6,7 +6,7 @@ export const getFinancialHealthAnalysis = async (financialData: any) => {
   const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
   try {
     const prompt = `
-      Analyze the following financial data for Unit 48 Payment & Financial Management System:
+      Analyze the following financial data for Unit 48 Payment System:
       ${JSON.stringify(financialData)}
       
       Provide a brief (max 150 words) professional summary of the unit's financial health, collection efficiency, and any anomalies or risks you detect.
