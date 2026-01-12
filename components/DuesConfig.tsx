@@ -1,12 +1,12 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { StorageService } from '../services/storageService';
 import { DueConfig, DueType, BillingFrequency } from '../types';
 
 interface DuesConfigProps { refreshDB: () => void; }
 
 const DuesConfigComponent: React.FC<DuesConfigProps> = ({ refreshDB }) => {
-  const [dues, setDues] = useState<DueConfig[]>(() => StorageService.getData<DueConfig>('u48_dues'));
+  const dues = useMemo(() => StorageService.getData<DueConfig>('u48_dues'), [refreshDB]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingDue, setEditingDue] = useState<Partial<DueConfig> | null>(null);
 
@@ -34,7 +34,7 @@ const DuesConfigComponent: React.FC<DuesConfigProps> = ({ refreshDB }) => {
       ? dues.map(d => d.id === editingDue.id ? (editingDue as DueConfig) : d)
       : [...dues, { ...(editingDue as DueConfig), id: `d-${Date.now()}` }];
     
-    setDues(updated);
+    // setDues(updated);
     StorageService.saveData('u48_dues', updated);
     refreshDB();
     setIsModalOpen(false);

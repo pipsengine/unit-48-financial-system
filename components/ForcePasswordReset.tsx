@@ -38,7 +38,7 @@ const ForcePasswordReset: React.FC<ForcePasswordResetProps> = ({ user, onSuccess
       return;
     }
 
-    if (newPassword === 'password123') {
+    if (newPassword === 'Admin123') {
       setError('Please choose a password different from the default one.');
       return;
     }

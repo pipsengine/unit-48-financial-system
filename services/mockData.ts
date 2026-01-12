@@ -7,15 +7,15 @@ import {
 export const MOCK_MEMBERS: Member[] = [
   {
     id: 'm1',
-    membershipId: 'U48-001',
+    membershipId: '02-381',
     email: 'president@unit48.org',
     phone: '08012345678',
     fullName: 'Chief Babatunde Okafor',
     dateOfJoining: '2020-01-01',
     status: MemberStatus.ACTIVE,
-    role: UserRole.SUPER_ADMIN,
+    role: UserRole.MEMBER,
     balance: 50000.00,
-    password: 'password123',
+    password: 'Admin123',
     address: '123 Presidential Way, Lagos',
     dob: '1970-05-15'
   },
@@ -29,7 +29,7 @@ export const MOCK_MEMBERS: Member[] = [
     status: MemberStatus.ACTIVE,
     role: UserRole.MEMBER,
     balance: -438.71,
-    password: 'password123',
+    password: 'Admin123',
     address: '42 Circle Drive, Abuja',
     dob: '1995-08-22'
   },
@@ -43,7 +43,7 @@ export const MOCK_MEMBERS: Member[] = [
     status: MemberStatus.ACTIVE,
     role: UserRole.AUDITOR,
     balance: 0,
-    password: 'password123',
+    password: 'Admin123',
     address: '89 Audit Lane, Ibadan',
     dob: '1982-12-01'
   },
@@ -57,7 +57,7 @@ export const MOCK_MEMBERS: Member[] = [
     status: MemberStatus.ACTIVE,
     role: UserRole.ADMIN,
     balance: 1500.00,
-    password: 'password123',
+    password: 'Admin123',
     address: '15 Admin Street, Port Harcourt',
     dob: '1988-03-30'
   },
@@ -71,7 +71,7 @@ export const MOCK_MEMBERS: Member[] = [
     status: MemberStatus.ACTIVE,
     role: UserRole.MEMBER,
     balance: 0,
-    password: 'password123',
+    password: 'Admin123',
     address: 'Unit 48 Block A',
     dob: '1985-01-01'
   },
@@ -85,7 +85,7 @@ export const MOCK_MEMBERS: Member[] = [
     status: MemberStatus.ACTIVE,
     role: UserRole.MEMBER,
     balance: 0,
-    password: 'password123',
+    password: 'Admin123',
     address: 'Unit 48 Block B',
     dob: '1982-02-02'
   },
@@ -99,7 +99,7 @@ export const MOCK_MEMBERS: Member[] = [
     status: MemberStatus.ACTIVE,
     role: UserRole.MEMBER,
     balance: 0,
-    password: 'password123',
+    password: 'Admin123',
     address: 'Unit 48 Block C',
     dob: '1988-03-03'
   },
@@ -113,7 +113,7 @@ export const MOCK_MEMBERS: Member[] = [
     status: MemberStatus.ACTIVE,
     role: UserRole.MEMBER,
     balance: 0,
-    password: 'password123',
+    password: 'Admin123',
     address: 'Unit 48 Block D',
     dob: '1980-04-04'
   },
@@ -127,7 +127,7 @@ export const MOCK_MEMBERS: Member[] = [
     status: MemberStatus.ACTIVE,
     role: UserRole.MEMBER,
     balance: 0,
-    password: 'password123',
+    password: 'Admin123',
     address: 'Unit 48 Block E',
     dob: '1984-05-05'
   },
@@ -141,7 +141,7 @@ export const MOCK_MEMBERS: Member[] = [
     status: MemberStatus.ACTIVE,
     role: UserRole.MEMBER,
     balance: 0,
-    password: 'password123',
+    password: 'Admin123',
     address: 'Unit 48 Block F',
     dob: '1986-06-06'
   },
@@ -155,7 +155,7 @@ export const MOCK_MEMBERS: Member[] = [
     status: MemberStatus.ACTIVE,
     role: UserRole.MEMBER,
     balance: 0,
-    password: 'password123',
+    password: 'Admin123',
     address: 'Unit 48 Block G',
     dob: '1981-07-07'
   },
@@ -169,7 +169,7 @@ export const MOCK_MEMBERS: Member[] = [
     status: MemberStatus.ACTIVE,
     role: UserRole.MEMBER,
     balance: 0,
-    password: 'password123',
+    password: 'Admin123',
     address: 'Unit 48 Block H',
     dob: '1983-08-08'
   },
@@ -183,7 +183,7 @@ export const MOCK_MEMBERS: Member[] = [
     status: MemberStatus.ACTIVE,
     role: UserRole.MEMBER,
     balance: 0,
-    password: 'password123',
+    password: 'Admin123',
     address: 'Unit 48 Block I',
     dob: '1987-09-09'
   },
@@ -195,9 +195,9 @@ export const MOCK_MEMBERS: Member[] = [
     fullName: 'OGBAISI Chris O',
     dateOfJoining: '2025-01-01',
     status: MemberStatus.ACTIVE,
-    role: UserRole.MEMBER,
+    role: UserRole.SUPER_ADMIN,
     balance: 0,
-    password: 'password123',
+    password: 'Admin123',
     address: 'Unit 48 Block J',
     dob: '1989-10-10'
   }

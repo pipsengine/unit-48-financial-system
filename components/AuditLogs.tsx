@@ -1,10 +1,10 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import { StorageService } from '../services/storageService';
 import { AuditLog } from '../types';
 
 const AuditLogs: React.FC = () => {
-  const [logs] = useState<AuditLog[]>(() => StorageService.getData<AuditLog>('u48_audit'));
+  const logs = StorageService.getData<AuditLog>('u48_audit');
   
   return (
     <div className="space-y-6">

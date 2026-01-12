@@ -17,8 +17,23 @@ interface Cache {
   [key: string]: any[];
 }
 
+type Listener = () => void;
+
 export const StorageService = {
   isReady: false,
+  listeners: [] as Listener[],
+
+  subscribe: (listener: Listener) => {
+    StorageService.listeners.push(listener);
+    return () => {
+      StorageService.listeners = StorageService.listeners.filter(l => l !== listener);
+    };
+  },
+
+  notify: () => {
+    StorageService.listeners.forEach(l => l());
+  },
+
   cache: {
     member: [],
     payment: [],
@@ -52,6 +67,7 @@ export const StorageService = {
       if (!res.ok) throw new Error('Failed to sync data');
       const data = await res.json();
       StorageService.cache = data;
+      StorageService.notify();
       // console.log('Data synced:', data);
     } catch (e) {
       console.error("Sync error:", e);

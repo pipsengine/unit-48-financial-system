@@ -40,6 +40,12 @@ const App: React.FC = () => {
       }
     };
     setup();
+
+    // Subscribe to live updates
+    const unsubscribe = StorageService.subscribe(() => {
+      refreshDB();
+    });
+    return () => unsubscribe();
   }, [dbVersion]);
 
   const handleLogin = (membershipId: string, password: string) => {
@@ -54,7 +60,7 @@ const App: React.FC = () => {
     const members = StorageService.getMembers();
     const user = members.find(m => m.membershipId === membershipId);
     // Allow login if password matches, or if user has NO password (legacy/bug) and uses default
-    if (user && (user.password === password || (!user.password && password === 'password123'))) { 
+    if (user && (user.password === password || (!user.password && password === 'Admin123'))) { 
       setCurrentUser(user);
       localStorage.setItem('u48_session', JSON.stringify(user));
       // Clear failed attempts on successful login
@@ -114,14 +120,14 @@ const App: React.FC = () => {
 
     // Check if Super Admin still has default password to show/hide helper card
     const members = StorageService.getMembers();
-    const superAdmin = members.find(m => m.membershipId === 'U48-001');
-    const showDefaultCredentials = superAdmin ? superAdmin.password === 'password123' : false;
+    const superAdmin = members.find(m => m.membershipId === '02-381');
+    const showDefaultCredentials = superAdmin ? superAdmin.password === 'Admin123' : false;
 
     return <Login onLogin={handleLogin} onForgotPassword={() => setShowForgotPassword(true)} showDefaultCredentials={showDefaultCredentials} />;
   }
 
   // Force password reset if the user is still using the default password
-  if (currentUser.password === 'password123' || !currentUser.password) {
+  if (currentUser.password === 'Admin123' || !currentUser.password) {
     return (
       <ForcePasswordReset 
         user={currentUser} 

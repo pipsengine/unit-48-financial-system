@@ -17,8 +17,8 @@ const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword, showDefaultCre
   };
 
   const fillDemo = () => {
-    setPin('U48-001');
-    setPassword('password123');
+    setPin('02-381');
+    setPassword('Admin123');
   };
 
   return (
@@ -41,12 +41,12 @@ const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword, showDefaultCre
             <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-amber-200/50">
               <div className="space-y-0.5">
                 <p className="text-[10px] text-slate-400 font-semibold uppercase">Super Admin ID</p>
-                <code className="text-xs font-mono font-bold text-slate-700">U48-001</code>
+                <code className="text-xs font-mono font-bold text-slate-700">02-381</code>
               </div>
               <div className="h-8 w-px bg-slate-100 mx-2"></div>
               <div className="space-y-0.5 text-right">
                 <p className="text-[10px] text-slate-400 font-semibold uppercase">Initial Password</p>
-                <code className="text-xs font-mono font-bold text-slate-700">password123</code>
+                <code className="text-xs font-mono font-bold text-slate-700">Admin123</code>
               </div>
             </div>
             <button 

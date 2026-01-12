@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { MemberStatus, UserRole, Member } from '../types';
 import { StorageService } from '../services/storageService';
 
@@ -9,7 +9,7 @@ interface MembersListProps {
 }
 
 const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => {
-  const [members, setMembers] = useState<Member[]>(() => StorageService.getMembers());
+  const members = useMemo(() => StorageService.getMembers(), [refreshDB]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [balanceUpdateMember, setBalanceUpdateMember] = useState<Member | null>(null);
   const [balanceType, setBalanceType] = useState<'CREDIT' | 'DEBIT'>('CREDIT');
@@ -35,7 +35,7 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
       dateOfJoining: new Date().toISOString().split('T')[0],
       balance: 0,
       previousBalance: 0,
-      password: 'password123',
+      password: 'Admin123',
       address: '',
       dob: ''
     });
@@ -78,7 +78,7 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
       : { ...(editingMember as Omit<Member, 'id'>), id: `m-${Date.now()}` };
     
     StorageService.updateMember(updatedMember);
-    setMembers(StorageService.getMembers());
+    // setMembers(StorageService.getMembers());
     refreshDB();
     setIsModalOpen(false);
   };
@@ -88,7 +88,7 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
     if (!balanceUpdateMember) return;
 
     StorageService.updateMember(balanceUpdateMember);
-    setMembers(StorageService.getMembers());
+    // setMembers(StorageService.getMembers());
     refreshDB();
     setBalanceUpdateMember(null);
   };
@@ -96,7 +96,7 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
   const handleDelete = (memberId: string) => {
     if (window.confirm('Are you sure you want to delete this member? This action cannot be undone.')) {
       StorageService.deleteMember(memberId);
-      setMembers(StorageService.getMembers());
+      // setMembers(StorageService.getMembers());
       refreshDB();
     }
   };
