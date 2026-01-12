@@ -45,19 +45,19 @@ const ForcePasswordReset: React.FC<ForcePasswordResetProps> = ({ user, onSuccess
 
     setLoading(true);
     
-    // Simulate a small delay for better UX
-    setTimeout(() => {
-      try {
-        const updatedUser = { ...user, password: newPassword };
-        StorageService.updateMember(updatedUser);
-        onSuccess(updatedUser);
-      } catch (err) {
-        setError('Failed to update password. Please try again.');
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    }, 1000);
+    try {
+      // Simulate a small delay for better UX
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      const updatedUser = { ...user, password: newPassword };
+      await StorageService.updateMember(updatedUser);
+      onSuccess(updatedUser);
+    } catch (err) {
+      setError('Failed to update password. Please try again.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

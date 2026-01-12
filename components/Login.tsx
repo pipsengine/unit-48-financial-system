@@ -17,7 +17,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword, showDefaultCre
   };
 
   const fillDemo = () => {
-    setPin('02-381');
+    setPin('02-14381');
     setPassword('Admin123');
   };
 
@@ -31,33 +31,6 @@ const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword, showDefaultCre
           <h2 className="text-3xl font-extrabold text-slate-900 tracking-tighter">Unit 48 Payment System</h2>
           <p className="text-slate-500 font-medium italic text-sm">Financial Management & Registry</p>
         </div>
-
-        {showDefaultCredentials && (
-          <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 space-y-2">
-            <div className="flex items-center gap-2 text-amber-800 font-black text-[10px] uppercase tracking-widest">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              System Default Credentials
-            </div>
-            <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-amber-200/50">
-              <div className="space-y-0.5">
-                <p className="text-[10px] text-slate-400 font-semibold uppercase">Super Admin ID</p>
-                <code className="text-xs font-mono font-bold text-slate-700">02-381</code>
-              </div>
-              <div className="h-8 w-px bg-slate-100 mx-2"></div>
-              <div className="space-y-0.5 text-right">
-                <p className="text-[10px] text-slate-400 font-semibold uppercase">Initial Password</p>
-                <code className="text-xs font-mono font-bold text-slate-700">Admin123</code>
-              </div>
-            </div>
-            <button 
-              type="button"
-              onClick={fillDemo}
-              className="w-full text-center text-xs text-amber-700 hover:text-amber-800 font-semibold underline decoration-amber-300 hover:decoration-amber-500 transition-all cursor-pointer"
-            >
-              Auto-fill these credentials
-            </button>
-          </div>
-        )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-4">
@@ -92,6 +65,9 @@ const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword, showDefaultCre
                   placeholder="••••••••"
                 />
               </div>
+              <p className="mt-1 ml-1 text-[10px] text-slate-400 font-medium">
+                Default Password: <span className="font-mono font-bold text-slate-600">Admin123</span>
+              </p>
             </div>
           </div>
 

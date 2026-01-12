@@ -12,6 +12,7 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
   const members = useMemo(() => StorageService.getMembers(), [refreshDB]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [balanceUpdateMember, setBalanceUpdateMember] = useState<Member | null>(null);
+  const [deleteConfirmationMember, setDeleteConfirmationMember] = useState<Member | null>(null);
   const [balanceType, setBalanceType] = useState<'CREDIT' | 'DEBIT'>('CREDIT');
   const [editingMember, setEditingMember] = useState<Partial<Member> | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -93,11 +94,11 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
     setBalanceUpdateMember(null);
   };
 
-  const handleDelete = (memberId: string) => {
-    if (window.confirm('Are you sure you want to delete this member? This action cannot be undone.')) {
-      StorageService.deleteMember(memberId);
-      // setMembers(StorageService.getMembers());
+  const confirmDelete = () => {
+    if (deleteConfirmationMember) {
+      StorageService.deleteMember(deleteConfirmationMember.id);
       refreshDB();
+      setDeleteConfirmationMember(null);
     }
   };
 
@@ -198,7 +199,7 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
                       )}
                       <button onClick={() => openModal(member)} className="text-indigo-600 font-bold text-xs uppercase hover:underline">Edit</button>
                       {currentUser.role === UserRole.SUPER_ADMIN && member.role !== UserRole.SUPER_ADMIN && (
-                        <button onClick={() => handleDelete(member.id)} className="text-red-600 font-bold text-xs uppercase hover:underline">Delete</button>
+                        <button onClick={() => setDeleteConfirmationMember(member)} className="text-red-600 font-bold text-xs uppercase hover:underline">Delete</button>
                       )}
                     </div>
                   </td>
@@ -208,6 +209,47 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
           </table>
         </div>
       </div>
+
+      {deleteConfirmationMember && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in duration-200">
+            <div className="p-6 bg-red-600 text-white flex justify-between items-center">
+              <h3 className="font-black uppercase tracking-widest text-sm">Confirm Deletion</h3>
+              <button onClick={() => setDeleteConfirmationMember(null)} className="hover:opacity-75 transition-opacity">
+                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="p-8 space-y-6 text-center">
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-2">
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              </div>
+              
+              <h4 className="font-bold text-slate-900 text-lg">
+                Are you sure you want to delete this member {deleteConfirmationMember.membershipId}?
+              </h4>
+              
+              <p className="text-xs text-slate-500 font-medium">
+                This action cannot be undone. All associated data will be permanently removed.
+              </p>
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setDeleteConfirmationMember(null)}
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black py-3 rounded-xl transition-all uppercase tracking-widest text-xs"
+                >
+                  No
+                </button>
+                <button 
+                  onClick={confirmDelete}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white font-black py-3 rounded-xl shadow-xl shadow-red-200 transition-all uppercase tracking-widest text-xs"
+                >
+                  Yes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {balanceUpdateMember && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
