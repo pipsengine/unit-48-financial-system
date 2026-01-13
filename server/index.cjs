@@ -147,6 +147,9 @@ app.post('/api/auth/reset-password', async (req, res) => {
     // Update password
     await db.run('UPDATE member SET password = ? WHERE id = ?', [newPassword, resetRecord.user_id]);
     
+    // Invalidate all sessions for this user to force re-login
+    await db.run('DELETE FROM session WHERE user_id = ?', [resetRecord.user_id]);
+    
     // Mark token as used
     await db.run('UPDATE password_resets SET used = 1 WHERE token = ?', [token]);
 

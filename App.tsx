@@ -185,7 +185,7 @@ const App: React.FC = () => {
         token={resetToken}
         onSuccess={() => {
           setResetToken(null);
-          setLogoutMessage("Password reset successfully. Please login.");
+          handleLogout("Password reset successfully. Please login.");
           window.history.replaceState({}, document.title, window.location.pathname);
         }}
         onCancel={() => {
