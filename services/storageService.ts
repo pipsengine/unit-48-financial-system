@@ -306,11 +306,13 @@ export const StorageService = {
 
   postPaymentToLedger: async (payment: Payment) => {
     const id = `l-pay-${Date.now()}`;
+    const fundEntryId = `l-fund-${Date.now()}`;
     const currentYear = new Date().getFullYear();
     const appliedYear = payment.appliedFinancialYear || new Date(payment.paymentDate).getFullYear();
     const isArrears = appliedYear < currentYear;
 
-    const entry: LedgerEntry = {
+    // 1. Receivable Settlement Entry
+    const settlementEntry: LedgerEntry = {
         id,
         entryDate: payment.paymentDate,
         effectiveDate: payment.paymentDate,
@@ -328,21 +330,67 @@ export const StorageService = {
         category: 'DUES',
         status: LedgerStatus.POSTED
     };
+
+    // 2. Fund Recognition Entry (Double Entry Requirement)
+    // ONLY for Ad-hoc payments (Donations, Projects) that were NOT assessed annually.
+    // Annual Dues (National, Unit, Welfare, Development) are recognized at Assessment time.
     
+    const adHocTypes = ['Donation', 'Project Support', 'Command Refreshment'];
+    const isAdHoc = adHocTypes.includes(payment.paymentType || '');
+
+    if (isAdHoc) {
+        // Map Payment Type to Fund Account
+        const fundMap: Record<string, string> = {
+            'Command Refreshment': 'acc-fund-command',
+            'Donation': 'acc-fund-donation',
+            'Project Support': 'acc-fund-project'
+        };
+        const fundAccount = fundMap[payment.paymentType || ''] || 'acc-fund-donation';
+
+        const fundEntry: LedgerEntry = {
+            id: fundEntryId,
+            entryDate: payment.paymentDate,
+            effectiveDate: payment.paymentDate,
+            description: `Fund Recognition (Ad-Hoc): ${payment.paymentType || 'General'} (${payment.referenceNumber})`,
+            debitAccountId: isArrears ? 'acc-member-arrears' : 'acc-member-receivable', // Acts as Clearing
+            creditAccountId: fundAccount,
+            amount: payment.amount,
+            memberId: payment.memberId,
+            referenceType: 'PAYMENT_FUND_RECOGNITION',
+            referenceId: payment.id,
+            createdAt: new Date().toISOString(),
+            appliedFinancialYear: appliedYear,
+            postingYear: currentYear,
+            postingType: PostingType.FUND_RECOGNITION,
+            category: payment.paymentType || 'DUES',
+            status: LedgerStatus.POSTED
+        };
+        
+        // Post Fund Recognition
+        await fetch(`${API_URL}/ledger_entry`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(fundEntry)
+        });
+    }
+    
+    // Post Settlement
     await fetch(`${API_URL}/ledger_entry`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(entry)
+        body: JSON.stringify(settlementEntry)
     });
   },
 
   postReversalToLedger: async (payment: Payment, reason: string) => {
     const id = `l-rev-${Date.now()}`;
+    const fundRevId = `l-rev-fund-${Date.now()}`;
     const currentYear = new Date().getFullYear();
     const appliedYear = payment.appliedFinancialYear || new Date(payment.paymentDate).getFullYear();
     const isArrears = appliedYear < currentYear;
 
-    const entry: LedgerEntry = {
+    // 1. Reverse Settlement
+    const reversalEntry: LedgerEntry = {
         id,
         entryDate: new Date().toISOString().split('T')[0], // Reversal date is today
         effectiveDate: payment.paymentDate,
@@ -351,7 +399,7 @@ export const StorageService = {
         creditAccountId: 'acc-bank',
         amount: payment.amount,
         memberId: payment.memberId,
-        referenceType: 'PAYMENT_REVERSAL',
+        referenceType: 'REVERSAL',
         referenceId: payment.id,
         createdAt: new Date().toISOString(),
         appliedFinancialYear: appliedYear,
@@ -360,11 +408,48 @@ export const StorageService = {
         category: 'DUES',
         status: LedgerStatus.POSTED
     };
-    
+
+    // 2. Reverse Fund Recognition
+    const fundMap: Record<string, string> = {
+        'National Due': 'acc-fund-national',
+        'Unit Due': 'acc-fund-unit',
+        'Welfare': 'acc-fund-welfare',
+        'Development Levy': 'acc-fund-development',
+        'Command Refreshment': 'acc-fund-command',
+        'Donation': 'acc-fund-donation',
+        'Project Support': 'acc-fund-project'
+    };
+    const fundAccount = fundMap[payment.paymentType || ''] || 'acc-fund-unit';
+
+    const fundReversalEntry: LedgerEntry = {
+        id: fundRevId,
+        entryDate: new Date().toISOString().split('T')[0],
+        effectiveDate: payment.paymentDate,
+        description: `REVERSAL of Fund Recognition: ${payment.referenceNumber}`,
+        debitAccountId: fundAccount,
+        creditAccountId: isArrears ? 'acc-member-arrears' : 'acc-member-receivable',
+        amount: payment.amount,
+        memberId: payment.memberId,
+        referenceType: 'REVERSAL',
+        referenceId: payment.id,
+        createdAt: new Date().toISOString(),
+        appliedFinancialYear: appliedYear,
+        postingYear: currentYear,
+        postingType: PostingType.REVERSAL,
+        category: 'DUES',
+        status: LedgerStatus.POSTED
+    };
+
     await fetch(`${API_URL}/ledger_entry`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(entry)
+        body: JSON.stringify(reversalEntry)
+    });
+
+    await fetch(`${API_URL}/ledger_entry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fundReversalEntry)
     });
   },
 
@@ -454,11 +539,31 @@ export const StorageService = {
   },
 
   applyFullYearAssessment: async (year: number) => {
-    // New Batch Implementation
+    // New Batch Implementation with Fund Split
     const configs = StorageService.getData<DueConfig>('dues_config');
-    const annualTotal = configs.filter(c => c.billingFrequency === BillingFrequency.ANNUAL).reduce((sum, c) => sum + c.amount, 0);
-    const monthlyTotal = configs.filter(c => c.billingFrequency === BillingFrequency.MONTHLY).reduce((sum, c) => sum + (c.amount * 12), 0);
-    const totalAssessment = annualTotal + monthlyTotal;
+    
+    // Map DueTypes to Fund Accounts
+    const fundMap: Record<string, string> = {
+        'NATIONAL': 'acc-fund-national',
+        'UNIT': 'acc-fund-unit',
+        'WELFARE': 'acc-fund-welfare',
+        'DEVELOPMENT': 'acc-fund-development'
+    };
+
+    const allocations = configs.map(config => {
+        const annualAmt = config.billingFrequency === BillingFrequency.ANNUAL 
+            ? config.amount 
+            : config.amount * 12;
+        
+        return {
+            account: fundMap[config.dueType] || 'acc-fund-unit',
+            amount: annualAmt,
+            description: `${config.dueType} Dues`
+        };
+    });
+    
+    // Calculate total for reference
+    const totalAssessment = allocations.reduce((sum, a) => sum + a.amount, 0);
     const batchId = `year-assessment-${year}-${Date.now()}`;
 
     try {
@@ -470,7 +575,7 @@ export const StorageService = {
             },
             body: JSON.stringify({
                 year,
-                amount: totalAssessment,
+                allocations,
                 description: `ANNUAL ASSESSMENT ${year} (Total Dues: ₦${totalAssessment.toLocaleString()})`,
                 referenceId: batchId
             })
@@ -593,11 +698,26 @@ export const StorageService = {
     });
 
     // Return sorted by date descending for display
-    return calculatedEntries.sort((a, b) => {
-        const dateA = new Date(a.effectiveDate).getTime();
-        const dateB = new Date(b.effectiveDate).getTime();
-        if (dateA !== dateB) return dateB - dateA;
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
+    // But keep the grouping logical if needed? The user requirement is "Group by (Applied Year, Category)" in UI logic.
+    // The previous implementation was already calculating buckets correctly.
+    // Let's ensure the categories are being used correctly from the updated DB.
+    return calculatedEntries
+        .sort((a, b) => {
+            // Primary Sort: Applied Year (Desc)
+            if (b.appliedFinancialYear !== a.appliedFinancialYear) {
+                return b.appliedFinancialYear - a.appliedFinancialYear;
+            }
+            // Secondary Sort: Category (Alphabetical)
+            if (a.category !== b.category) {
+                return (a.category || '').localeCompare(b.category || '');
+            }
+            // Tertiary Sort: Effective Date (Desc)
+            const dateA = new Date(a.effectiveDate).getTime();
+            const dateB = new Date(b.effectiveDate).getTime();
+            if (dateA !== dateB) return dateB - dateA;
+            // Quaternary Sort: CreatedAt (Desc)
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
   }
 };
+

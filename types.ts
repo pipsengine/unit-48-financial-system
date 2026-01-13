@@ -67,6 +67,17 @@ export interface Member {
   dob?: string;
 }
 
+export enum LedgerCategory {
+  NATIONAL_DUE = 'NATIONAL_DUE',
+  UNIT_DUE = 'UNIT_DUE',
+  WELFARE_DUE = 'WELFARE_DUE',
+  DEVELOPMENT_LEVY = 'DEVELOPMENT_LEVY',
+  COMMAND_REFRESHMENT = 'COMMAND_REFRESHMENT',
+  PROJECT_SUPPORT = 'PROJECT_SUPPORT',
+  DONATION = 'DONATION',
+  OUTSTANDING_ARREARS = 'OUTSTANDING_ARREARS'
+}
+
 export enum PostingType {
   OPENING_BALANCE = 'OPENING_BALANCE',
   CURRENT_YEAR_CHARGE = 'CURRENT_YEAR_CHARGE',
@@ -76,7 +87,8 @@ export enum PostingType {
   DONATION = 'DONATION',
   ADJUSTMENT = 'ADJUSTMENT',
   REVERSAL = 'REVERSAL',
-  EXPENSE = 'EXPENSE'
+  EXPENSE = 'EXPENSE',
+  FUND_RECOGNITION = 'FUND_RECOGNITION'
 }
 
 export enum LedgerStatus {
@@ -100,7 +112,7 @@ export interface LedgerEntry {
   appliedFinancialYear: number;
   postingYear: number;
   postingType: PostingType;
-  category: string;
+  category: LedgerCategory | string;
   status: LedgerStatus;
   // Computed for UI
   balance?: number;

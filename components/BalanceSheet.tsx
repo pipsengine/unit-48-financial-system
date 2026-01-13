@@ -47,83 +47,31 @@ const BalanceSheet: React.FC = () => {
 
     const totalLiabilities = prepaidDues + unpaidExpenses;
 
-    // --- 3. FUNDS / EQUITY ---
+    // --- 3. FUNDS & EQUITY ---
     
-    // We need to calculate the revenue allocated to each fund.
-    // Major Source: 'acc-revenue-annual' which aggregates National, Unit, Welfare, Development.
-    // We need to split this based on the DuesConfig ratios.
-
-    const annualRevenueEntries = ledger.filter(e => e.creditAccountId === 'acc-revenue-annual');
-    const totalAnnualRevenue = annualRevenueEntries.reduce((sum, e) => sum + e.amount, 0);
-
-    // Calculate Ratios from Config
-    // We need to match the logic in applyFullYearAssessment: Annual + (Monthly * 12)
-    const calculateAnnualAmount = (config: DueConfig) => {
-        return config.billingFrequency === BillingFrequency.ANNUAL 
-            ? config.amount 
-            : config.amount * 12;
-    };
-
-    const configTotals = duesConfig.reduce((acc, config) => {
-        const annualAmt = calculateAnnualAmount(config);
-        acc.total += annualAmt;
-        if (config.dueType === DueType.NATIONAL) acc.national += annualAmt;
-        if (config.dueType === DueType.UNIT) acc.unit += annualAmt;
-        if (config.dueType === DueType.WELFARE) acc.welfare += annualAmt;
-        if (config.dueType === DueType.DEVELOPMENT) acc.development += annualAmt;
-        return acc;
-    }, { total: 0, national: 0, unit: 0, welfare: 0, development: 0 });
-
-    const getRatio = (amount: number) => configTotals.total > 0 ? amount / configTotals.total : 0;
-
-    // Allocated Funds from Annual Assessments
-    const nationalFundRevenue = totalAnnualRevenue * getRatio(configTotals.national);
-    const unitFundRevenue = totalAnnualRevenue * getRatio(configTotals.unit);
-    const welfareFundRevenue = totalAnnualRevenue * getRatio(configTotals.welfare);
-    const developmentFundRevenue = totalAnnualRevenue * getRatio(configTotals.development);
-
-    // Scan for direct credits to specific funds (e.g. from manual journals or specific payments)
-    // We look for 'acc-fund-[name]' or 'acc-revenue-[name]'
-    const getDirectFundRevenue = (keywords: string[]) => {
+    // Calculate Fund Balances from Ledger (Cash Basis Recognition)
+    // We look for credits to acc-fund-*
+    const getFundBalance = (fundAccount: string) => {
         return ledger
-            .filter(e => 
-                keywords.some(k => e.creditAccountId.includes(k)) && 
-                e.creditAccountId !== 'acc-revenue-annual' // Exclude the aggregate we already split
-            )
+            .filter(e => e.creditAccountId === fundAccount)
+            .reduce((sum, e) => sum + e.amount, 0) - 
+            ledger
+            .filter(e => e.debitAccountId === fundAccount)
             .reduce((sum, e) => sum + e.amount, 0);
     };
 
-    const nationalDirect = getDirectFundRevenue(['national']);
-    const unitDirect = getDirectFundRevenue(['unit']);
-    const welfareDirect = getDirectFundRevenue(['welfare']);
-    const developmentDirect = getDirectFundRevenue(['development']);
-    
-    const projectSupportFund = getDirectFundRevenue(['project', 'support']);
-    const commandRefreshmentFund = getDirectFundRevenue(['refreshment', 'command']);
-    const donationFund = getDirectFundRevenue(['donation', 'gift']);
-
-    // Total Funds
     const funds = {
-        national: nationalFundRevenue + nationalDirect,
-        unit: unitFundRevenue + unitDirect,
-        welfare: welfareFundRevenue + welfareDirect,
-        development: developmentFundRevenue + developmentDirect,
-        projectSupport: projectSupportFund,
-        commandRefreshment: commandRefreshmentFund,
-        donation: donationFund
+        national: getFundBalance('acc-fund-national'),
+        unit: getFundBalance('acc-fund-unit'),
+        welfare: getFundBalance('acc-fund-welfare'),
+        development: getFundBalance('acc-fund-development'),
+        projectSupport: getFundBalance('acc-fund-project'),
+        commandRefreshment: getFundBalance('acc-fund-command'),
+        donation: getFundBalance('acc-fund-donation'),
+        openingSurplus: getFundBalance('acc-fund-opening-surplus')
     };
 
-    // Accumulated Surplus / Deficit
-    // This is essentially (Total Revenue - Total Allocated Funds) - Total Expenses + Opening Equity
-    // Since we allocated ALL 'acc-revenue-annual' and 'acc-revenue-*', the "Total Revenue" is fully distributed to Funds.
-    // So Surplus/Deficit is mainly just -TotalExpenses (plus any unallocated revenue if we missed any).
-    // Note: In strict Fund Accounting, expenses should be charged against specific funds.
-    // Since we don't have expense allocation, we show "General Fund Deficit" (due to expenses) or "Accumulated Surplus".
-    
-    // Let's check if there are any other revenues
-    const allRevenue = ledger.filter(e => e.creditAccountId.startsWith('acc-revenue') || e.creditAccountId.startsWith('acc-fund')).reduce((sum, e) => sum + e.amount, 0);
-    const allocatedRevenue = Object.values(funds).reduce((a, b) => a + b, 0);
-    const unallocatedRevenue = allRevenue - allocatedRevenue; // Should be ~0 due to logic above
+    const totalFundRevenue = Object.values(funds).reduce((a, b) => a + b, 0);
 
     // Total Expenses (Paid + Unpaid/Accrued)
     // In accrual, we deduct all incurred expenses
@@ -131,9 +79,12 @@ const BalanceSheet: React.FC = () => {
         .filter(e => e.status === ExpenseStatus.PAID || e.status === ExpenseStatus.APPROVED)
         .reduce((sum, e) => sum + e.amount, 0);
 
-    const accumulatedSurplus = unallocatedRevenue - totalIncurredExpenses;
+    // Accumulated Surplus = Opening + (Unallocated Income) - Expenses
+    // Since Income is held in Funds, Surplus represents the consumption of resources (Expenses)
+    // and any Unallocated Income (if any).
+    const accumulatedSurplus = funds.openingSurplus - totalIncurredExpenses;
 
-    const totalEquity = Object.values(funds).reduce((a, b) => a + b, 0) + accumulatedSurplus;
+    const totalEquity = totalFundRevenue + accumulatedSurplus - funds.openingSurplus; // Avoid double counting openingSurplus if it's in totalFundRevenue
 
     return {
       assets: {

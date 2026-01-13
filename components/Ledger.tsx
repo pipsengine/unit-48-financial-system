@@ -53,12 +53,12 @@ const Ledger: React.FC<LedgerProps> = ({ user, setActiveTab }) => {
                 <th className="px-4 py-4 text-center">Status</th>
                 <th className="px-4 py-4 text-right">Debit (Due)</th>
                 <th className="px-4 py-4 text-right">Credit (Paid)</th>
-                <th className="px-4 py-4 text-right">Balance</th>
+                <th className="px-4 py-4 text-right">Balance (FY + Category)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {processedEntries.length > 0 ? (
-                processedEntries.map(entry => {
+                processedEntries.map((entry, index) => {
                     const isDebit = entry.debitAccountId && entry.debitAccountId.includes('member');
                     const isCredit = entry.creditAccountId && entry.creditAccountId.includes('member');
                     const debitAmt = isDebit ? entry.amount : 0;
@@ -66,32 +66,44 @@ const Ledger: React.FC<LedgerProps> = ({ user, setActiveTab }) => {
                     const balance = entry.balance || 0;
                     const isCreditBalance = balance < 0;
 
+                    // Group separator logic
+                    const prevEntry = processedEntries[index - 1];
+                    const isNewGroup = !prevEntry || prevEntry.appliedFinancialYear !== entry.appliedFinancialYear || prevEntry.category !== entry.category;
+
                     return (
-                      <tr key={entry.id} className="text-sm hover:bg-slate-50/50 transition-colors">
-                        <td className="px-4 py-4 text-slate-500 font-mono whitespace-nowrap">{entry.effectiveDate}</td>
-                        <td className="px-4 py-4 font-bold text-slate-600 text-center">{entry.appliedFinancialYear}</td>
-                        <td className="px-4 py-4 text-slate-500 text-center">{entry.postingYear || '-'}</td>
-                        <td className="px-4 py-4 text-slate-500 text-center text-xs font-bold uppercase bg-slate-100 rounded px-2 py-1 mx-auto w-min whitespace-nowrap">{entry.category || 'GENERAL'}</td>
-                        <td className="px-4 py-4 font-medium text-slate-700">{entry.description}</td>
-                        <td className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase">{entry.postingType?.replace('_', ' ') || '-'}</td>
-                        <td className="px-4 py-4 text-center">
-                            <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${entry.status === 'POSTED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                {entry.status || 'POSTED'}
-                            </span>
-                        </td>
-                        <td className="px-4 py-4 text-right font-mono text-red-600">
-                          {debitAmt > 0 ? `₦${debitAmt.toLocaleString()}` : '-'}
-                        </td>
-                        <td className="px-4 py-4 text-right font-mono text-emerald-600">
-                          {creditAmt > 0 ? `₦${creditAmt.toLocaleString()}` : '-'}
-                        </td>
-                        <td className={`px-4 py-4 text-right font-mono font-bold whitespace-nowrap ${isCreditBalance ? 'text-emerald-700' : 'text-red-700'}`}>
-                          {isCreditBalance ? `${Math.abs(balance).toLocaleString()} Cr` : `₦${balance.toLocaleString()} Dr`}
-                        </td>
-                      </tr>
+                      <React.Fragment key={entry.id}>
+                          {isNewGroup && index > 0 && (
+                              <tr className="bg-slate-100/50">
+                                  <td colSpan={10} className="h-1"></td>
+                              </tr>
+                          )}
+                          <tr className="text-sm hover:bg-slate-50/50 transition-colors">
+                            <td className="px-4 py-4 text-slate-500 font-mono whitespace-nowrap">{entry.effectiveDate}</td>
+                            <td className="px-4 py-4 font-bold text-slate-600 text-center">{entry.appliedFinancialYear}</td>
+                            <td className="px-4 py-4 text-slate-500 text-center">{entry.postingYear || '-'}</td>
+                            <td className="px-4 py-4 text-slate-500 text-center text-xs font-bold uppercase bg-slate-100 rounded px-2 py-1 mx-auto w-min whitespace-nowrap">{entry.category || 'GENERAL'}</td>
+                            <td className="px-4 py-4 font-medium text-slate-700">{entry.description}</td>
+                            <td className="px-4 py-4 text-[10px] font-bold text-slate-500 uppercase">{entry.postingType?.replace('_', ' ') || '-'}</td>
+                            <td className="px-4 py-4 text-center">
+                                <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${entry.status === 'POSTED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                    {entry.status || 'POSTED'}
+                                </span>
+                            </td>
+                            <td className="px-4 py-4 text-right font-mono text-red-600">
+                              {debitAmt > 0 ? `₦${debitAmt.toLocaleString()}` : '-'}
+                            </td>
+                            <td className="px-4 py-4 text-right font-mono text-emerald-600">
+                              {creditAmt > 0 ? `₦${creditAmt.toLocaleString()}` : '-'}
+                            </td>
+                            <td className={`px-4 py-4 text-right font-mono font-bold whitespace-nowrap ${isCreditBalance ? 'text-emerald-700' : 'text-red-700'}`}>
+                              {isCreditBalance ? `${Math.abs(balance).toLocaleString()} Cr` : `₦${balance.toLocaleString()} Dr`}
+                            </td>
+                          </tr>
+                      </React.Fragment>
                     );
                 })
               ) : (
+
                 <tr>
                   <td colSpan={10} className="px-6 py-12 text-center text-slate-400 italic">No transactions found in your live ledger.</td>
                 </tr>

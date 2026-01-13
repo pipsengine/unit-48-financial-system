@@ -250,10 +250,10 @@ app.get('/api/sync', authenticateToken, async (req, res) => {
 
 app.post('/api/batch/assessments', authenticateToken, async (req, res) => {
   try {
-    const { year, amount, description, referenceId } = req.body;
+    const { year, amount, description, referenceId, allocations } = req.body;
     
-    if (!year || !amount) {
-      return res.status(400).json({ error: 'Year and Amount are required' });
+    if (!year || (!amount && !allocations)) {
+      return res.status(400).json({ error: 'Year and Amount (or Allocations) are required' });
     }
 
     // Get all active members
@@ -263,24 +263,53 @@ app.post('/api/batch/assessments', authenticateToken, async (req, res) => {
       return res.json({ message: 'No active members found', count: 0 });
     }
 
-    const ledgerEntries = members.map(member => ({
-      id: `l-year-${year}-${member.id}`,
-      entry_date: `${year}-01-01`,
-      effective_date: `${year}-01-01`,
-      description: description || `ANNUAL ASSESSMENT ${year}`,
-      debit_account_id: 'acc-member-receivable',
-      credit_account_id: 'acc-revenue-annual',
-      amount: amount,
-      member_id: member.id,
-      reference_type: 'AUTO_DEBIT_BATCH',
-      reference_id: referenceId || `year-assessment-${year}-${Date.now()}`,
-      created_at: new Date().toISOString(),
-      applied_financial_year: year,
-      posting_year: new Date().getFullYear(),
-      posting_type: 'CURRENT_YEAR_CHARGE',
-      category: 'DUES',
-      status: 'POSTED'
-    }));
+    const ledgerEntries = [];
+    
+    for (const member of members) {
+        if (allocations && Array.isArray(allocations)) {
+            // Create multiple split entries per member
+            allocations.forEach((alloc, idx) => {
+                ledgerEntries.push({
+                    id: `l-year-${year}-${member.id}-${idx}`,
+                    entry_date: `${year}-01-01`,
+                    effective_date: `${year}-01-01`,
+                    description: description || `ANNUAL ASSESSMENT ${year} - ${alloc.description || 'General'}`,
+                    debit_account_id: 'acc-member-receivable',
+                    credit_account_id: alloc.account,
+                    amount: alloc.amount,
+                    member_id: member.id,
+                    reference_type: 'AUTO_DEBIT_BATCH',
+                    reference_id: referenceId || `year-assessment-${year}-${Date.now()}`,
+                    created_at: new Date().toISOString(),
+                    applied_financial_year: year,
+                    posting_year: new Date().getFullYear(),
+                    posting_type: 'CURRENT_YEAR_CHARGE',
+                    category: 'DUES',
+                    status: 'POSTED'
+                });
+            });
+        } else {
+            // Legacy single entry behavior
+            ledgerEntries.push({
+                id: `l-year-${year}-${member.id}`,
+                entry_date: `${year}-01-01`,
+                effective_date: `${year}-01-01`,
+                description: description || `ANNUAL ASSESSMENT ${year}`,
+                debit_account_id: 'acc-member-receivable',
+                credit_account_id: 'acc-revenue-annual',
+                amount: amount,
+                member_id: member.id,
+                reference_type: 'AUTO_DEBIT_BATCH',
+                reference_id: referenceId || `year-assessment-${year}-${Date.now()}`,
+                created_at: new Date().toISOString(),
+                applied_financial_year: year,
+                posting_year: new Date().getFullYear(),
+                posting_type: 'CURRENT_YEAR_CHARGE',
+                category: 'DUES',
+                status: 'POSTED'
+            });
+        }
+    }
 
     // Batch Insert using transaction
     // SQLite doesn't support bulk insert with json simply, we loop in transaction
@@ -296,7 +325,7 @@ app.post('/api/batch/assessments', authenticateToken, async (req, res) => {
       for (const entry of ledgerEntries) {
         await db.run(stmt, Object.values(entry));
       }
-
+      
       await db.run('COMMIT');
       res.json({ success: true, count: ledgerEntries.length });
     } catch (e) {
