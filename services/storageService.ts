@@ -4,7 +4,7 @@ import {
   MemberStatus, UserRole, PaymentStatus, ExpenseStatus, DueType, BillingFrequency 
 } from '../types';
 
-const API_URL = 'http://localhost:3005/api';
+const API_URL = (import.meta as any)?.env?.VITE_API_URL || 'http://localhost:3005/api';
 
 // Cache structure
 interface Cache {

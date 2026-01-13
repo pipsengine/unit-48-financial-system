@@ -132,6 +132,41 @@ app.post('/api/reset', async (req, res) => {
     }
 });
 
+// Reset all numeric values to zero while preserving members
+app.post('/api/reset-zero', async (req, res) => {
+    try {
+        await db.run('UPDATE member SET previous_balance = 0');
+        await db.run('DELETE FROM payment');
+        await db.run('DELETE FROM ledger_entry');
+        await db.run('DELETE FROM expense');
+        await db.run('DELETE FROM audit_log');
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/members/bulk_upsert', async (req, res) => {
+    try {
+        const { members } = req.body || {};
+        if (!Array.isArray(members)) {
+            return res.status(400).json({ error: 'members array required' });
+        }
+        const toSnake = (k) => k.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+        for (const data of members) {
+            const keys = Object.keys(data);
+            const dbKeys = keys.map(toSnake);
+            const values = Object.values(data);
+            const placeholders = keys.map(() => '?').join(',');
+            const sql = `INSERT OR REPLACE INTO member (${dbKeys.join(',')}) VALUES (${placeholders})`;
+            await db.run(sql, values);
+        }
+        res.json({ success: true, count: members.length });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);

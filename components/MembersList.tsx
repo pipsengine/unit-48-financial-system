@@ -23,7 +23,7 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
                          m.membershipId.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = filterStatus === 'ALL' || m.status === filterStatus;
     return matchesSearch && matchesStatus;
-  });
+  }).sort((a, b) => a.fullName.localeCompare(b.fullName, undefined, { sensitivity: 'base' }));
 
   const openModal = (member?: Member) => {
     setEditingMember(member || {
@@ -52,19 +52,16 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
       return;
     }
 
-    // Credential Validation
-    if (!editingMember.id) {
-      // Check uniqueness for new members
-      const existingId = members.find(m => m.membershipId === editingMember.membershipId);
-      if (existingId) {
-        alert('Membership ID already exists. Please use a unique ID.');
-        return;
-      }
-      const existingEmail = members.find(m => m.email === editingMember.email);
-      if (existingEmail) {
-        alert('Email address already registered.');
-        return;
-      }
+    // Credential Validation (unique constraints)
+    const duplicateMembership = members.find(m => m.membershipId === editingMember.membershipId && m.id !== editingMember.id);
+    if (duplicateMembership) {
+      alert('Membership ID already exists. Please use a unique ID.');
+      return;
+    }
+    const duplicateEmail = members.find(m => m.email === editingMember.email && m.id !== editingMember.id);
+    if (duplicateEmail) {
+      alert('Email address already registered.');
+      return;
     }
 
     // Email format validation
@@ -360,13 +357,11 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Member ID / PIN</label>
                   <input 
                     required 
-                    disabled={!!editingMember.id}
                     value={editingMember.membershipId} 
                     onChange={e => setEditingMember({...editingMember, membershipId: e.target.value})} 
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm disabled:opacity-60 disabled:cursor-not-allowed" 
                     placeholder="U48-XXXX" 
                   />
-                  {editingMember.id && <p className="text-[9px] text-slate-400 mt-1 font-bold uppercase">System ID is immutable after registration</p>}
                 </div>
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Email Address</label>
