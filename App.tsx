@@ -183,10 +183,30 @@ const App: React.FC = () => {
     return (
       <ResetPassword 
         token={resetToken}
-        onSuccess={() => {
+        onSuccess={(authData) => {
           setResetToken(null);
-          handleLogout("Password reset successfully. Please login.");
-          window.history.replaceState({}, document.title, window.location.pathname);
+          
+          if (authData) {
+            // Auto-login
+            const { token, user } = authData;
+            const members = StorageService.getMembers();
+            // Merge with local member data to ensure methods/fields
+            const fullUser = members.find(m => m.id === user.id) || { ...user, balance: 0, arrearsBalance: 0 };
+            
+            setCurrentUser(fullUser);
+            setToken(token);
+            
+            localStorage.setItem('u48_session', JSON.stringify(fullUser));
+            localStorage.setItem('u48_token', token);
+            
+            setLogoutMessage(null);
+          } else {
+             handleLogout("Password reset successfully. Please login.");
+          }
+
+          // Explicitly clear query params
+          const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+          window.history.replaceState({path: newUrl}, '', newUrl);
         }}
         onCancel={() => {
           setResetToken(null);

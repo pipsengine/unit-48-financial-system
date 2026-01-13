@@ -106,7 +106,7 @@ class DbService {
       `);
 
       await this.run(`
-        CREATE TABLE IF NOT EXISTS session (
+        CREATE TABLE IF NOT EXISTS dues_config (
           id TEXT PRIMARY KEY,
           due_type TEXT NOT NULL,
           billing_frequency TEXT NOT NULL,

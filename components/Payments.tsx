@@ -204,6 +204,7 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                 <th className="px-6 py-4">Ref Number</th>
                 {isAdmin && <th className="px-6 py-4">Member</th>}
                 <th className="px-6 py-4">Type</th>
+                <th className="px-6 py-4">Fin. Year</th>
                 <th className="px-6 py-4">Date</th>
                 <th className="px-6 py-4">Method</th>
                 <th className="px-6 py-4 text-right">Amount</th>
@@ -219,6 +220,7 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                   <td className="px-6 py-4">
                     <span className="text-[10px] font-bold text-slate-500 uppercase">{payment.paymentType || 'General'}</span>
                   </td>
+                  <td className="px-6 py-4 text-slate-600 font-bold text-xs">{payment.appliedFinancialYear}</td>
                   <td className="px-6 py-4 text-slate-600 font-mono text-xs">{payment.paymentDate}</td>
                   <td className="px-6 py-4">
                     <span className="text-[10px] font-bold text-slate-500 uppercase bg-slate-100 px-2 py-1 rounded">{payment.paymentMethod.replace('_', ' ')}</span>

@@ -175,7 +175,25 @@ app.post('/api/auth/reset-password', async (req, res) => {
     // Mark token as used
     await db.run('UPDATE password_resets SET used = 1 WHERE token = ?', [token]);
 
-    res.json({ success: true });
+    // Auto-login: Generate new session
+    const newToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = Date.now() + (5 * 60 * 1000);
+    await db.run('INSERT INTO session (token, user_id, expires_at) VALUES (?, ?, ?)', [newToken, resetRecord.user_id, expiresAt]);
+    
+    // Get member details for frontend
+    const member = await db.get('SELECT * FROM member WHERE id = ?', [resetRecord.user_id]);
+    
+    // Convert snake_case to camelCase
+    const toCamel = (o) => {
+      const newO = {};
+      for (const key in o) {
+        const newKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+        newO[newKey] = o[key];
+      }
+      return newO;
+    };
+
+    res.json({ success: true, token: newToken, user: toCamel(member) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

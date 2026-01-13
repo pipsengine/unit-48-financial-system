@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 
 interface ResetPasswordProps {
   token: string;
-  onSuccess: () => void;
+  onSuccess: (data?: { token: string, user: any }) => void;
   onCancel: () => void;
 }
 
@@ -11,6 +11,8 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, onSuccess, onCance
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [authData, setAuthData] = useState<{ token: string, user: any } | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,7 +50,8 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, onSuccess, onCance
       const data = await res.json();
       
       if (res.ok) {
-        onSuccess();
+        setAuthData(data);
+        setSuccess(true);
       } else {
         setError(data.error || 'Failed to reset password.');
       }
@@ -59,6 +62,34 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, onSuccess, onCance
       setLoading(false);
     }
   };
+
+  if (success) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 to-slate-900">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8 space-y-8 m-4 animate-in fade-in zoom-in duration-300">
+          <div className="text-center space-y-4">
+            <div className="inline-flex items-center justify-center w-20 h-20 bg-green-100 text-green-600 rounded-full mb-2 shadow-inner ring-4 ring-green-50">
+              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-extrabold text-slate-900 tracking-tighter">Password Updated!</h2>
+            <p className="text-slate-500 font-medium text-sm">
+              Your password has been securely reset. You will be redirected to the dashboard.
+            </p>
+          </div>
+          <button 
+            type="button"
+            onClick={() => onSuccess(authData || undefined)}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-200 transform active:scale-[0.98] transition-all uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-2"
+          >
+            Go to Dashboard
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 to-slate-900">

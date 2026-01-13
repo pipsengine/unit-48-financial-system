@@ -177,13 +177,15 @@ export const StorageService = {
   updateMember: async (member: Member) => {
     try {
       // Remove derived fields that shouldn't be sent to backend
-      const { balance, ...memberData } = member;
+      const { balance, arrearsBalance, ...memberData } = member;
 
-      await fetch(`${API_URL}/member`, {
+      const res = await fetch(`${API_URL}/member`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(memberData)
       });
+      if (!res.ok) throw new Error('Failed to update member');
+      
       await StorageService.sync();
       StorageService.logAudit(member.id, 'UPDATE_MEMBER', 'MEMBER', member.id);
     } catch (e) {
