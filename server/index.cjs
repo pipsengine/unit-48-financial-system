@@ -4,14 +4,110 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const db = require('./db.cjs');
 
+const crypto = require('crypto');
+
 const app = express();
 const PORT = 3005;
 
 app.use(cors());
 app.use(bodyParser.json());
 
+// Auth Endpoints
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { membershipId, password } = req.body;
+    const member = await db.get('SELECT * FROM member WHERE membership_id = ?', [membershipId]);
+    
+    if (!member) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Password check (replicating App.tsx logic)
+    // Note: In production, use bcrypt. Here we match existing plain text logic.
+    const isValid = member.password === password || (!member.password && password === 'Admin123');
+    
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Generate token
+    const token = crypto.randomBytes(32).toString('hex');
+    // Default 5 minutes expiry, updated on activity
+    const expiresAt = Date.now() + (5 * 60 * 1000); 
+
+    await db.run('INSERT INTO session (token, user_id, expires_at) VALUES (?, ?, ?)', [token, member.id, expiresAt]);
+
+    // Convert snake_case to camelCase
+    const toCamel = (o) => {
+      const newO = {};
+      for (const key in o) {
+        const newKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+        newO[newKey] = o[key];
+      }
+      return newO;
+    };
+
+    res.json({ token, user: toCamel(member), expiresAt });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (token) {
+      await db.run('DELETE FROM session WHERE token = ?', [token]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/heartbeat', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'No token' });
+    
+    const session = await db.get('SELECT * FROM session WHERE token = ?', [token]);
+    if (!session) {
+      return res.status(401).json({ error: 'Session invalid' });
+    }
+
+    if (session.expires_at < Date.now()) {
+      await db.run('DELETE FROM session WHERE token = ?', [token]);
+      return res.status(401).json({ error: 'Session expired' });
+    }
+    
+    // Extend session by 5 minutes
+    const newExpiresAt = Date.now() + (5 * 60 * 1000);
+    await db.run('UPDATE session SET expires_at = ? WHERE token = ?', [newExpiresAt, token]);
+    
+    res.json({ success: true, expiresAt: newExpiresAt });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const authenticateToken = async (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Authentication required' });
+
+  try {
+    const session = await db.get('SELECT * FROM session WHERE token = ?', [token]);
+    if (!session || session.expires_at < Date.now()) {
+      return res.status(401).json({ error: 'Session expired' });
+    }
+    req.user = { id: session.user_id };
+    next();
+  } catch (err) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 // Sync endpoint to get all data at once
-app.get('/api/sync', async (req, res) => {
+app.get('/api/sync', authenticateToken, async (req, res) => {
   try {
     const members = await db.all('SELECT * FROM member');
     const payments = await db.all('SELECT * FROM payment');

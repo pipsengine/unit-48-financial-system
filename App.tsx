@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserRole, Member } from './types';
 import { StorageService } from './services/storageService';
+import SessionManager from './components/SessionManager';
 import Login from './components/Login';
 import ForgotPassword from './components/ForgotPassword';
 import ForcePasswordReset from './components/ForcePasswordReset';
@@ -20,6 +21,8 @@ import AuditLogs from './components/AuditLogs';
 const App: React.FC = () => {
   const [isInitializing, setIsInitializing] = useState(true);
   const [currentUser, setCurrentUser] = useState<Member | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [logoutMessage, setLogoutMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -29,11 +32,34 @@ const App: React.FC = () => {
     const setup = async () => {
       try {
         await StorageService.init();
-        const saved = localStorage.getItem('u48_session');
-        if (saved) {
-          const user = JSON.parse(saved);
-          const latestUser = StorageService.getMembers().find(m => m.id === user.id);
-          if (latestUser) setCurrentUser(latestUser);
+        const savedSession = localStorage.getItem('u48_session');
+        const savedToken = localStorage.getItem('u48_token');
+
+        if (savedSession && savedToken) {
+          const user = JSON.parse(savedSession);
+          
+          // Verify token with server
+          try {
+            const res = await fetch('http://localhost:3005/api/auth/heartbeat', {
+               method: 'POST',
+               headers: { 'Authorization': `Bearer ${savedToken}` }
+            });
+
+            if (res.ok) {
+               const latestUser = StorageService.getMembers().find(m => m.id === user.id);
+               if (latestUser) setCurrentUser(latestUser);
+               setToken(savedToken);
+            } else {
+               // Token invalid or expired
+               localStorage.removeItem('u48_session');
+               localStorage.removeItem('u48_token');
+               setLogoutMessage("Session expired due to inactivity. Please log in again.");
+            }
+          } catch (e) {
+             console.error("Session verification failed", e);
+             localStorage.removeItem('u48_session');
+             localStorage.removeItem('u48_token');
+          }
         }
       } catch (err) {
         console.error("Failed to initialize SQLite:", err);
@@ -50,7 +76,7 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, [dbVersion]);
 
-  const handleLogin = (membershipId: string, password: string) => {
+  const handleLogin = async (membershipId: string, password: string) => {
     // Check for lockout
     const lockoutUntil = localStorage.getItem('u48_lockout');
     if (lockoutUntil && parseInt(lockoutUntil) > Date.now()) {
@@ -59,34 +85,62 @@ const App: React.FC = () => {
       return;
     }
 
-    const members = StorageService.getMembers();
-    const user = members.find(m => m.membershipId === membershipId);
-    // Allow login if password matches, or if user has NO password (legacy/bug) and uses default
-    if (user && (user.password === password || (!user.password && password === 'Admin123'))) { 
-      setCurrentUser(user);
-      localStorage.setItem('u48_session', JSON.stringify(user));
-      // Clear failed attempts on successful login
-      localStorage.removeItem('u48_login_attempts');
-      localStorage.removeItem('u48_lockout');
-    } else {
-      // Handle failed attempt
-      const attempts = parseInt(localStorage.getItem('u48_login_attempts') || '0') + 1;
-      localStorage.setItem('u48_login_attempts', attempts.toString());
-
-      if (attempts >= 3) {
-        localStorage.setItem('u48_lockout', (Date.now() + 30000).toString()); // 30s lockout
+    try {
+      const res = await fetch('http://localhost:3005/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ membershipId, password })
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok) {
+        // Find local member object to ensure all fields/methods if any
+        const members = StorageService.getMembers();
+        const user = members.find(m => m.id === data.user.id) || data.user;
+        
+        setCurrentUser(user);
+        setToken(data.token);
+        
+        localStorage.setItem('u48_session', JSON.stringify(user));
+        localStorage.setItem('u48_token', data.token);
+        
+        setLogoutMessage(null);
         localStorage.removeItem('u48_login_attempts');
-        alert('Too many failed attempts. System locked for 30 seconds.');
+        localStorage.removeItem('u48_lockout');
       } else {
-        alert(`Invalid PIN or Password. Attempt ${attempts} of 3.`);
+         // Handle failed attempt
+        const attempts = parseInt(localStorage.getItem('u48_login_attempts') || '0') + 1;
+        localStorage.setItem('u48_login_attempts', attempts.toString());
+
+        if (attempts >= 3) {
+          localStorage.setItem('u48_lockout', (Date.now() + 30000).toString()); // 30s lockout
+          localStorage.removeItem('u48_login_attempts');
+          alert('Too many failed attempts. System locked for 30 seconds.');
+        } else {
+          alert(data.error || `Invalid PIN or Password. Attempt ${attempts} of 3.`);
+        }
       }
+    } catch (e) {
+      alert("Login failed: Server unreachable or error occurred.");
+      console.error(e);
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = (reason?: string) => {
+    if (token) {
+      fetch('http://localhost:3005/api/auth/logout', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).catch(console.error);
+    }
+    
     setCurrentUser(null);
+    setToken(null);
     localStorage.removeItem('u48_session');
+    localStorage.removeItem('u48_token');
     setActiveTab('dashboard');
+    if (reason) setLogoutMessage(reason);
   };
 
   const refreshDB = () => setDbVersion(v => v + 1);
@@ -123,7 +177,7 @@ const App: React.FC = () => {
     const members = StorageService.getMembers();
     const superAdmin = members.find(m => m.role === UserRole.SUPER_ADMIN);
     const showDefaultCredentials = superAdmin ? superAdmin.password === 'Admin123' : false;
-    return <Login onLogin={handleLogin} onForgotPassword={() => setShowForgotPassword(true)} showDefaultCredentials={showDefaultCredentials} />;
+    return <Login onLogin={handleLogin} onForgotPassword={() => setShowForgotPassword(true)} showDefaultCredentials={showDefaultCredentials} errorMessage={logoutMessage} />;
   }
 
   // Force password reset if the user is still using the default password
@@ -172,6 +226,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
+      {token && <SessionManager onLogout={handleLogout} token={token} />}
       <Sidebar 
         user={currentUser} 
         activeTab={activeTab} 

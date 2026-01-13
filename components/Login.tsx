@@ -5,9 +5,10 @@ interface LoginProps {
   onLogin: (id: string, password: string) => void;
   onForgotPassword: () => void;
   showDefaultCredentials?: boolean;
+  errorMessage?: string | null;
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword, showDefaultCredentials = true }) => {
+const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword, showDefaultCredentials = true, errorMessage }) => {
   const [pin, setPin] = useState('');
   const [password, setPassword] = useState('');
 
@@ -19,6 +20,14 @@ const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword, showDefaultCre
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 to-slate-900">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8 space-y-8 m-4 animate-in fade-in zoom-in duration-300">
+        {errorMessage && (
+          <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r shadow-sm animate-pulse">
+            <p className="text-red-700 text-xs font-bold uppercase tracking-wide flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              {errorMessage}
+            </p>
+          </div>
+        )}
         <div className="text-center space-y-2">
           <div className="inline-flex items-center justify-center w-24 h-24 mb-4">
             <img src="/Logo.png" alt="Unit 48 Logo" className="w-full h-full object-contain drop-shadow-xl" />

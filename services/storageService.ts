@@ -66,10 +66,18 @@ export const StorageService = {
 
   sync: async () => {
     try {
-      const res = await fetch(`${API_URL}/sync`).catch(() => null);
+      const token = localStorage.getItem('u48_token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`${API_URL}/sync`, { headers }).catch(() => null);
       if (!res) {
         console.warn("Backend not reachable");
         return;
+      }
+      if (res.status === 401) {
+         console.warn("Sync unauthorized - Session may be expired");
+         return;
       }
       if (!res.ok) throw new Error('Failed to sync data');
       const data = await res.json();

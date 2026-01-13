@@ -162,6 +162,15 @@ class DbService {
       `);
 
       await this.run(`
+        CREATE TABLE IF NOT EXISTS session (
+          token TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          expires_at INTEGER NOT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await this.run(`
         CREATE TABLE IF NOT EXISTS audit_log (
           id TEXT PRIMARY KEY,
           user_id TEXT,
