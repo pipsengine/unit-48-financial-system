@@ -6,6 +6,7 @@ import SessionManager from './components/SessionManager';
 import Login from './components/Login';
 import ForgotPassword from './components/ForgotPassword';
 import ForcePasswordReset from './components/ForcePasswordReset';
+import ResetPassword from './components/ResetPassword';
 import Dashboard from './components/Dashboard';
 import Sidebar from './components/Sidebar';
 import MembersList from './components/MembersList';
@@ -26,7 +27,16 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetToken, setResetToken] = useState<string | null>(null);
   const [dbVersion, setDbVersion] = useState(0);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('reset_token');
+    if (token) {
+      setResetToken(token);
+    }
+  }, []);
 
   useEffect(() => {
     const setup = async () => {
@@ -166,6 +176,23 @@ const App: React.FC = () => {
           }
         `}</style>
       </div>
+    );
+  }
+
+  if (resetToken) {
+    return (
+      <ResetPassword 
+        token={resetToken}
+        onSuccess={() => {
+          setResetToken(null);
+          setLogoutMessage("Password reset successfully. Please login.");
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }}
+        onCancel={() => {
+          setResetToken(null);
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }}
+      />
     );
   }
 

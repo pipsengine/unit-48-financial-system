@@ -1,14 +1,12 @@
 import React, { useState } from 'react';
-import { Member } from '../types';
-import { StorageService } from '../services/storageService';
 
-interface ForcePasswordResetProps {
-  user: Member;
-  onSuccess: (updatedUser: Member) => void;
-  onLogout: () => void;
+interface ResetPasswordProps {
+  token: string;
+  onSuccess: () => void;
+  onCancel: () => void;
 }
 
-const ForcePasswordReset: React.FC<ForcePasswordResetProps> = ({ user, onSuccess, onLogout }) => {
+const ResetPassword: React.FC<ResetPasswordProps> = ({ token, onSuccess, onCancel }) => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -38,22 +36,24 @@ const ForcePasswordReset: React.FC<ForcePasswordResetProps> = ({ user, onSuccess
       return;
     }
 
-    if (newPassword === 'Admin123') {
-      setError('Please choose a password different from the default one.');
-      return;
-    }
-
     setLoading(true);
     
     try {
-      // Simulate a small delay for better UX
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const res = await fetch('http://localhost:3005/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, newPassword })
+      });
       
-      const updatedUser = { ...user, password: newPassword };
-      await StorageService.updateMember(updatedUser);
-      onSuccess(updatedUser);
+      const data = await res.json();
+      
+      if (res.ok) {
+        onSuccess();
+      } else {
+        setError(data.error || 'Failed to reset password.');
+      }
     } catch (err) {
-      setError('Failed to update password. Please try again.');
+      setError('Failed to connect to server. Please try again.');
       console.error(err);
     } finally {
       setLoading(false);
@@ -69,10 +69,9 @@ const ForcePasswordReset: React.FC<ForcePasswordResetProps> = ({ user, onSuccess
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
           </div>
-          <h2 className="text-2xl font-extrabold text-slate-900 tracking-tighter">Security Update Required</h2>
+          <h2 className="text-2xl font-extrabold text-slate-900 tracking-tighter">Set New Password</h2>
           <p className="text-slate-500 font-medium text-sm">
-            It looks like you're using a default password. <br/>
-            Please update your credentials to continue.
+            Enter your new secure password below.
           </p>
         </div>
 
@@ -115,15 +114,15 @@ const ForcePasswordReset: React.FC<ForcePasswordResetProps> = ({ user, onSuccess
               disabled={loading}
               className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-200 transform active:scale-[0.98] transition-all uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-2"
             >
-              {loading ? 'Updating...' : 'Update Password & Login'}
+              {loading ? 'Updating...' : 'Reset Password'}
             </button>
             
             <button 
               type="button"
-              onClick={() => onLogout()}
+              onClick={onCancel}
               className="w-full text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-wider py-2 transition-colors"
             >
-              Cancel & Logout
+              Cancel & Login
             </button>
           </div>
         </form>
@@ -132,4 +131,4 @@ const ForcePasswordReset: React.FC<ForcePasswordResetProps> = ({ user, onSuccess
   );
 };
 
-export default ForcePasswordReset;
+export default ResetPassword;

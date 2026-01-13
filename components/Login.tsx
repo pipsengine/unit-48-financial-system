@@ -87,7 +87,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword, showDefaultCre
               onClick={onForgotPassword}
               className="text-[11px] font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-widest transition-colors"
             >
-              Reset PIN?
+              Forgot Password?
             </button>
           </div>
 

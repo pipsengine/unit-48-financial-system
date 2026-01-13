@@ -95,7 +95,18 @@ class DbService {
       `);
 
       await this.run(`
-        CREATE TABLE IF NOT EXISTS dues_config (
+        CREATE TABLE IF NOT EXISTS password_resets (
+          token TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          expires_at INTEGER NOT NULL,
+          used INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(user_id) REFERENCES member(id)
+        )
+      `);
+
+      await this.run(`
+        CREATE TABLE IF NOT EXISTS session (
           id TEXT PRIMARY KEY,
           due_type TEXT NOT NULL,
           billing_frequency TEXT NOT NULL,

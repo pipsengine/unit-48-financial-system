@@ -10,14 +10,28 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBack }) => {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      setLoading(false);
+    
+    try {
+      await fetch('http://localhost:3005/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier })
+      });
+      // Always show success to avoid user enumeration, or show actual result if preferred.
+      // The backend returns success: true even if user not found (security best practice),
+      // but logs to console if found.
       setSubmitted(true);
-    }, 1500);
+    } catch (err) {
+      console.error(err);
+      // Still show submitted to avoid confusion or reveal errors?
+      // Better to show error if network fail.
+      alert("Failed to connect to server.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

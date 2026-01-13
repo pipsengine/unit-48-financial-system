@@ -90,6 +90,72 @@ app.post('/api/auth/heartbeat', async (req, res) => {
   }
 });
 
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { identifier } = req.body;
+    // Check if identifier matches email or membershipId
+    const member = await db.get(
+      'SELECT * FROM member WHERE email = ? OR membership_id = ?', 
+      [identifier, identifier]
+    );
+
+    if (!member) {
+      // For security, we might not want to reveal if user exists, but for internal app it's fine.
+      // Let's pretend success to avoid enumeration if we were strict, but here we can be helpful.
+      // Actually, sticking to standard practice: "If that account exists, we sent an email."
+      return res.json({ success: true, message: 'If an account exists, a reset link has been sent.' });
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = Date.now() + (15 * 60 * 1000); // 15 mins
+
+    await db.run(
+      'INSERT INTO password_resets (token, user_id, expires_at) VALUES (?, ?, ?)',
+      [token, member.id, expiresAt]
+    );
+
+    // SIMULATE EMAIL SENDING
+    console.log('---------------------------------------------------');
+    console.log(`[EMAIL SIMULATION] Password Reset Requested for ${member.full_name}`);
+    console.log(`[EMAIL SIMULATION] Link: http://localhost:3000/?reset_token=${token}`);
+    console.log('---------------------------------------------------');
+
+    res.json({ success: true, message: 'Reset link sent to server console.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    const resetRecord = await db.get('SELECT * FROM password_resets WHERE token = ?', [token]);
+
+    if (!resetRecord) {
+      return res.status(400).json({ error: 'Invalid or expired token.' });
+    }
+
+    if (resetRecord.used) {
+      return res.status(400).json({ error: 'Token already used.' });
+    }
+
+    if (resetRecord.expires_at < Date.now()) {
+      return res.status(400).json({ error: 'Token expired.' });
+    }
+
+    // Update password
+    await db.run('UPDATE member SET password = ? WHERE id = ?', [newPassword, resetRecord.user_id]);
+    
+    // Mark token as used
+    await db.run('UPDATE password_resets SET used = 1 WHERE token = ?', [token]);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const authenticateToken = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Authentication required' });
