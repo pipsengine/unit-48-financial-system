@@ -118,7 +118,10 @@ const App: React.FC = () => {
       return <ForgotPassword onBack={() => setShowForgotPassword(false)} />;
     }
 
-    return <Login onLogin={handleLogin} onForgotPassword={() => setShowForgotPassword(true)} />;
+    const members = StorageService.getMembers();
+    const superAdmin = members.find(m => m.role === UserRole.SUPER_ADMIN);
+    const showDefaultCredentials = superAdmin ? superAdmin.password === 'Admin123' : false;
+    return <Login onLogin={handleLogin} onForgotPassword={() => setShowForgotPassword(true)} showDefaultCredentials={showDefaultCredentials} />;
   }
 
   // Force password reset if the user is still using the default password

@@ -63,7 +63,11 @@ export const StorageService = {
 
   sync: async () => {
     try {
-      const res = await fetch(`${API_URL}/sync`);
+      const res = await fetch(`${API_URL}/sync`).catch(() => null);
+      if (!res) {
+        console.warn("Backend not reachable");
+        return;
+      }
       if (!res.ok) throw new Error('Failed to sync data');
       const data = await res.json();
       StorageService.cache = data;

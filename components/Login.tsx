@@ -21,6 +21,12 @@ const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword, showDefaultCre
     setPassword('Admin123');
   };
 
+  const clearLockout = () => {
+    localStorage.removeItem('u48_login_attempts');
+    localStorage.removeItem('u48_lockout');
+    alert('Login lockout cleared. You can try again now.');
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 to-slate-900">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8 space-y-8 m-4 animate-in fade-in zoom-in duration-300">
@@ -65,9 +71,11 @@ const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword, showDefaultCre
                   placeholder="••••••••"
                 />
               </div>
-              <p className="mt-1 ml-1 text-[10px] text-slate-400 font-medium">
-                Default Password: <span className="font-mono font-bold text-slate-600">Admin123</span>
-              </p>
+              {showDefaultCredentials && (
+                <p className="mt-1 ml-1 text-[10px] text-slate-400 font-medium">
+                  Default Password: <span className="font-mono font-bold text-slate-600">Admin123</span>
+                </p>
+              )}
             </div>
           </div>
 
@@ -82,6 +90,22 @@ const Login: React.FC<LoginProps> = ({ onLogin, onForgotPassword, showDefaultCre
               className="text-[11px] font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-widest transition-colors"
             >
               Reset PIN?
+            </button>
+          </div>
+          <div className="flex items-center justify-between">
+            <button 
+              type="button"
+              onClick={fillDemo}
+              className="text-[11px] font-black text-slate-600 hover:text-slate-800 uppercase tracking-widest transition-colors"
+            >
+              Use Demo Admin
+            </button>
+            <button 
+              type="button"
+              onClick={clearLockout}
+              className="text-[11px] font-black text-rose-600 hover:text-rose-800 uppercase tracking-widest transition-colors"
+            >
+              Clear Lockout
             </button>
           </div>
 
