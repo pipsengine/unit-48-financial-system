@@ -21,6 +21,7 @@ type Listener = () => void;
 
 export const StorageService = {
   isReady: false,
+  isPolling: false,
   listeners: [] as Listener[],
 
   subscribe: (listener: Listener) => {
@@ -46,17 +47,20 @@ export const StorageService = {
   init: async () => {
     if (StorageService.isReady) return;
 
+    // Start polling immediately to ensure we keep trying even if initial sync fails
+    if (!StorageService.isPolling) {
+      StorageService.isPolling = true;
+      setInterval(() => {
+        StorageService.sync().catch(console.error);
+      }, 5000);
+    }
+
     try {
       await StorageService.sync();
       StorageService.isReady = true;
       
       // Check and apply annual dues on startup
       await StorageService.checkAndApplyAnnualDues();
-      
-      // Setup polling for live data (every 5 seconds)
-      setInterval(() => {
-        StorageService.sync().catch(console.error);
-      }, 5000);
 
     } catch (err) {
       console.error("StorageService.init failed:", err);
@@ -242,6 +246,50 @@ export const StorageService = {
     }
   },
 
+  reversePayment: async (paymentId: string, adminId: string, reason: string) => {
+    try {
+        await fetch(`${API_URL}/payment/${paymentId}/reverse`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ adminId, reason })
+        });
+        
+        await StorageService.sync();
+        StorageService.logAudit(adminId, 'REVERSE_PAYMENT', 'PAYMENT', paymentId);
+    } catch (e) {
+        console.error("reversePayment failed:", e);
+        throw e;
+    }
+  },
+
+  deletePayment: async (paymentId: string) => {
+    try {
+        await fetch(`${API_URL}/payment/${paymentId}`, {
+            method: 'DELETE'
+        });
+        await StorageService.sync();
+    } catch (e) {
+        console.error("deletePayment failed:", e);
+        throw e;
+    }
+  },
+
+  reclassifyPayment: async (paymentId: string, adminId: string, reason: string, newDate: string, newFinancialYear?: number) => {
+    try {
+        await fetch(`${API_URL}/payment/${paymentId}/reclassify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ adminId, reason, newDate, newFinancialYear })
+        });
+        
+        await StorageService.sync();
+        StorageService.logAudit(adminId, 'RECLASSIFY_PAYMENT', 'PAYMENT', paymentId);
+    } catch (e) {
+        console.error("reclassifyPayment failed:", e);
+        throw e;
+    }
+  },
+
   postPaymentToLedger: async (payment: Payment) => {
     const id = `l-pay-${Date.now()}`;
     const currentYear = new Date().getFullYear();
@@ -262,6 +310,35 @@ export const StorageService = {
         createdAt: new Date().toISOString(),
         appliedFinancialYear: appliedYear,
         postingType: isArrears ? PostingType.ARREARS_SETTLEMENT : PostingType.GENERAL_PAYMENT
+    };
+    
+    await fetch(`${API_URL}/ledger_entry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entry)
+    });
+  },
+
+  postReversalToLedger: async (payment: Payment, reason: string) => {
+    const id = `l-rev-${Date.now()}`;
+    const currentYear = new Date().getFullYear();
+    const appliedYear = payment.appliedFinancialYear || new Date(payment.paymentDate).getFullYear();
+    const isArrears = appliedYear < currentYear;
+
+    const entry: LedgerEntry = {
+        id,
+        entryDate: new Date().toISOString().split('T')[0], // Reversal date is today
+        effectiveDate: payment.paymentDate,
+        description: `REVERSAL of Payment ${payment.referenceNumber}: ${reason}`,
+        debitAccountId: isArrears ? 'acc-member-arrears' : 'acc-member-receivable',
+        creditAccountId: 'acc-bank',
+        amount: payment.amount,
+        memberId: payment.memberId,
+        referenceType: 'PAYMENT_REVERSAL',
+        referenceId: payment.id,
+        createdAt: new Date().toISOString(),
+        appliedFinancialYear: appliedYear,
+        postingType: PostingType.PAYMENT_REVERSAL
     };
     
     await fetch(`${API_URL}/ledger_entry`, {

@@ -7,7 +7,29 @@ const db = require('./db.cjs');
 const crypto = require('crypto');
 
 const app = express();
-const PORT = 3005;
+// Hard Delete Payment (and associated ledger entries)
+app.delete('/api/payment/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Delete associated ledger entries first
+    await db.run('DELETE FROM ledger_entry WHERE reference_id = ?', [id]);
+    
+    // Delete the payment
+    const result = await db.run('DELETE FROM payment WHERE id = ?', [id]);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+    
+    res.json({ message: 'Payment and associated ledger entries deleted permanently' });
+  } catch (err) {
+    console.error('Error deleting payment:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const PORT = process.env.PORT || 3005;
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -264,6 +286,197 @@ app.put('/api/payment/:id/status', async (req, res) => {
         await db.run('UPDATE payment SET status = ? WHERE id = ?', [status, req.params.id]);
         res.json({ success: true });
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Reverse Payment (Immutable Ledger Approach)
+app.post('/api/payment/:id/reverse', async (req, res) => {
+    try {
+        const { adminId, reason } = req.body;
+        const paymentId = req.params.id;
+        
+        const payment = await db.get('SELECT * FROM payment WHERE id = ?', [paymentId]);
+        if (!payment) return res.status(404).json({ error: 'Payment not found' });
+        if (payment.status === 'REVERSED') return res.status(400).json({ error: 'Payment already reversed' });
+
+        const now = new Date().toISOString();
+        
+        // 1. Mark original payment as REVERSED
+        await db.run(`
+            UPDATE payment 
+            SET status = 'REVERSED', 
+                correction_reason = ?, 
+                corrected_by = ?, 
+                corrected_at = ? 
+            WHERE id = ?`, 
+            [reason, adminId, now, paymentId]
+        );
+
+        // 2. Create Contra Entry in Ledger
+        // Determine accounts based on payment logic (simplified here, mirroring storageService)
+        const currentYear = new Date().getFullYear();
+        const appliedYear = payment.applied_financial_year || new Date(payment.payment_date).getFullYear();
+        const isArrears = appliedYear < currentYear;
+        
+        const contraEntryId = `l-rev-${Date.now()}`;
+        const contraEntry = {
+            id: contraEntryId,
+            entry_date: now.split('T')[0], // Today
+            effective_date: payment.payment_date,
+            description: `REVERSAL of Payment ${payment.reference_number}: ${reason}`,
+            debit_account_id: isArrears ? 'acc-member-arrears' : 'acc-member-receivable', // Swap Debit/Credit
+            credit_account_id: 'acc-bank',
+            amount: payment.amount,
+            member_id: payment.member_id,
+            reference_type: 'PAYMENT_REVERSAL',
+            reference_id: payment.id,
+            created_at: now,
+            applied_financial_year: appliedYear,
+            posting_type: 'PAYMENT_REVERSAL'
+        };
+
+        await db.run(`
+            INSERT INTO ledger_entry (
+                id, entry_date, effective_date, description, 
+                debit_account_id, credit_account_id, amount, member_id, 
+                reference_type, reference_id, created_at, applied_financial_year, posting_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            Object.values(contraEntry)
+        );
+
+        // Audit Log
+        const auditId = `aud-${Date.now()}`;
+        await db.run(`
+            INSERT INTO audit_log (id, user_id, action, entity_type, entity_id, timestamp) 
+            VALUES (?, ?, 'REVERSE_PAYMENT', 'PAYMENT', ?, ?)`,
+            [auditId, adminId, paymentId, now]
+        );
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error("Reverse payment failed:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Reclassify Payment (Correction = Reversal + Repost)
+app.post('/api/payment/:id/reclassify', async (req, res) => {
+    try {
+        const { adminId, reason, newDate, newFinancialYear } = req.body;
+        const paymentId = req.params.id;
+
+        const payment = await db.get('SELECT * FROM payment WHERE id = ?', [paymentId]);
+        if (!payment) return res.status(404).json({ error: 'Payment not found' });
+        if (payment.status === 'REVERSED') return res.status(400).json({ error: 'Payment already reversed' });
+
+        const now = new Date().toISOString();
+
+        // 1. Reverse Original Payment
+        await db.run(`
+            UPDATE payment 
+            SET status = 'REVERSED', 
+                correction_reason = ?, 
+                corrected_by = ?, 
+                corrected_at = ? 
+            WHERE id = ?`, 
+            [reason, adminId, now, paymentId]
+        );
+
+        // 2. Create Contra Entry
+        const currentYear = new Date().getFullYear();
+        const oldAppliedYear = payment.applied_financial_year || new Date(payment.payment_date).getFullYear();
+        const wasArrears = oldAppliedYear < currentYear;
+
+        const contraEntryId = `l-rev-${Date.now()}`;
+        await db.run(`
+            INSERT INTO ledger_entry (
+                id, entry_date, effective_date, description, 
+                debit_account_id, credit_account_id, amount, member_id, 
+                reference_type, reference_id, created_at, applied_financial_year, posting_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                contraEntryId, 
+                now.split('T')[0], 
+                payment.payment_date, 
+                `REVERSAL (CORRECTION) of Payment ${payment.reference_number}: ${reason}`,
+                wasArrears ? 'acc-member-arrears' : 'acc-member-receivable',
+                'acc-bank',
+                payment.amount,
+                payment.member_id,
+                'PAYMENT_REVERSAL',
+                paymentId,
+                now,
+                oldAppliedYear,
+                'PAYMENT_REVERSAL'
+            ]
+        );
+
+        // 3. Create New Corrected Payment
+        const newPaymentId = `p-cor-${Date.now()}`;
+        const newAppliedYear = newFinancialYear || new Date(newDate).getFullYear();
+        
+        await db.run(`
+            INSERT INTO payment (
+                id, member_id, member_name, amount, payment_date, 
+                payment_method, payment_type, reference_number, status, 
+                notes, created_at, applied_financial_year, reversal_reference_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                newPaymentId,
+                payment.member_id,
+                payment.member_name,
+                payment.amount,
+                newDate,
+                payment.payment_method,
+                payment.payment_type,
+                payment.reference_number, // Keep same ref number? Or append -COR? Keeping same is usually better for tracking, but uniqueness constraint? Ref number isn't unique in schema.
+                'VERIFIED', // Auto-verified
+                `CORRECTION of ${payment.reference_number}. ${reason}`,
+                now,
+                newAppliedYear,
+                paymentId // Link back to original
+            ]
+        );
+
+        // 4. Create New Ledger Entry
+        const isNewArrears = newAppliedYear < currentYear;
+        const newLedgerId = `l-pay-${Date.now()}`;
+        
+        await db.run(`
+            INSERT INTO ledger_entry (
+                id, entry_date, effective_date, description, 
+                debit_account_id, credit_account_id, amount, member_id, 
+                reference_type, reference_id, created_at, applied_financial_year, posting_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                newLedgerId,
+                newDate,
+                newDate,
+                `Payment (${payment.payment_type || 'General'}): ${payment.reference_number} (CORRECTED)`,
+                'acc-bank',
+                isNewArrears ? 'acc-member-arrears' : 'acc-member-receivable',
+                payment.amount,
+                payment.member_id,
+                'PAYMENT',
+                newPaymentId,
+                now,
+                newAppliedYear,
+                isNewArrears ? 'ARREARS_SETTLEMENT' : 'GENERAL_PAYMENT'
+            ]
+        );
+
+        // Audit Log
+        const auditId = `aud-${Date.now()}`;
+        await db.run(`
+            INSERT INTO audit_log (id, user_id, action, entity_type, entity_id, timestamp) 
+            VALUES (?, ?, 'RECLASSIFY_PAYMENT', 'PAYMENT', ?, ?)`,
+            [auditId, adminId, newPaymentId, now]
+        );
+
+        res.json({ success: true, newPaymentId });
+    } catch (err) {
+        console.error("Reclassify payment failed:", err);
         res.status(500).json({ error: err.message });
     }
 });

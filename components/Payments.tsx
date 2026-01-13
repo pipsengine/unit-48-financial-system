@@ -21,10 +21,20 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
     paymentMethod: 'BANK_TRANSFER',
     paymentType: 'National Due',
     referenceNumber: '',
-    notes: ''
+    notes: '',
+    appliedFinancialYear: new Date().getFullYear().toString()
   });
 
+  // Correction State
+  const [showCorrectionModal, setShowCorrectionModal] = useState(false);
+  const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null);
+  const [correctionMode, setCorrectionMode] = useState<'REVERSE' | 'RECLASSIFY' | 'DELETE'>('RECLASSIFY');
+  const [correctionReason, setCorrectionReason] = useState('');
+  const [newPaymentDate, setNewPaymentDate] = useState('');
+  const [newFinancialYear, setNewFinancialYear] = useState('');
+
   const isAdmin = user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN;
+  const isSuperAdmin = user.role === UserRole.SUPER_ADMIN;
   const livePayments = StorageService.getPayments();
   const members = StorageService.getMembers();
   const currentYear = new Date().getFullYear();
@@ -43,12 +53,69 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
     refreshDB();
   };
 
-  const handleRecordDirect = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPayment.memberId || !newPayment.amount || !newPayment.referenceNumber || !newPayment.appliedFinancialYear) {
-      alert("Please fill all compulsory fields.");
+  const handleCorrectionClick = (payment: Payment) => {
+    setSelectedPaymentId(payment.id);
+    setCorrectionMode('RECLASSIFY'); // Default to reclassify as it's more common for errors
+    setCorrectionReason('');
+    setNewPaymentDate(payment.paymentDate);
+    setNewFinancialYear(payment.appliedFinancialYear?.toString() || new Date(payment.paymentDate).getFullYear().toString());
+    setShowCorrectionModal(true);
+  };
+
+  const confirmCorrection = () => {
+    if (!selectedPaymentId) return;
+
+    if (correctionMode === 'DELETE') {
+        if (!isSuperAdmin) {
+            alert("Only Super Admin can delete payments permanently.");
+            return;
+        }
+        if (confirm("Are you sure you want to PERMANENTLY DELETE this payment and its ledger entries? This action cannot be undone.")) {
+            StorageService.deletePayment(selectedPaymentId)
+                .then(() => {
+                    refreshDB();
+                    setShowCorrectionModal(false);
+                })
+                .catch(err => alert("Deletion failed: " + err.message));
+        }
+        return;
+    }
+
+    if (!correctionReason) {
+      alert("Please provide a reason for the correction.");
       return;
     }
+
+    if (correctionMode === 'REVERSE') {
+      StorageService.reversePayment(selectedPaymentId, user.id, correctionReason)
+        .then(() => {
+          refreshDB();
+          setShowCorrectionModal(false);
+        })
+        .catch(err => alert("Reversal failed: " + err.message));
+    } else {
+      if (!newPaymentDate || !newFinancialYear) {
+         alert("Please provide the correct date and financial year.");
+         return;
+      }
+      StorageService.reclassifyPayment(selectedPaymentId, user.id, correctionReason, newPaymentDate, parseInt(newFinancialYear))
+        .then(() => {
+          refreshDB();
+          setShowCorrectionModal(false);
+        })
+        .catch(err => alert("Reclassification failed: " + err.message));
+    }
+  };
+
+  const handleRecordDirect = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPayment.memberId || !newPayment.amount || !newPayment.referenceNumber || !newPayment.appliedFinancialYear || !newPayment.paymentDate) {
+      alert("Please fill all compulsory fields, including Date.");
+      return;
+    }
+
+    const confirmMsg = `Confirm Posting:\n\nApplied Financial Year: ${newPayment.appliedFinancialYear}\nPayment Date: ${newPayment.paymentDate}\nAmount: ₦${parseFloat(newPayment.amount).toLocaleString()}\n\nIs this correct?`;
+    if (!window.confirm(confirmMsg)) return;
 
     const selectedMember = members.find(m => m.id === newPayment.memberId);
     
@@ -159,16 +226,24 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                   <td className="px-6 py-4 text-right font-black text-slate-900">₦{payment.amount.toLocaleString()}</td>
                   <td className="px-6 py-4">
                     <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter ${
-                      payment.status === PaymentStatus.VERIFIED ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'
+                      payment.status === PaymentStatus.VERIFIED ? 'bg-emerald-100 text-emerald-700' : 
+                      payment.status === PaymentStatus.PENDING ? 'bg-amber-100 text-amber-700' : 
+                      payment.status === PaymentStatus.REVERSED ? 'bg-slate-200 text-slate-500 decoration-slate-500 line-through' :
+                      'bg-red-100 text-red-700'
                     }`}>
                       {payment.status}
                     </span>
                   </td>
                   {isAdmin && (
                     <td className="px-6 py-4">
-                      {payment.status === PaymentStatus.PENDING && (
-                        <button onClick={() => handleVerify(payment.id)} className="text-emerald-600 hover:underline font-bold text-xs uppercase tracking-widest">Verify</button>
-                      )}
+                      <div className="flex items-center gap-3">
+                        {payment.status === PaymentStatus.PENDING && (
+                          <button onClick={() => handleVerify(payment.id)} className="text-emerald-600 hover:underline font-bold text-xs uppercase tracking-widest">Verify</button>
+                        )}
+                        {isSuperAdmin && payment.status === PaymentStatus.VERIFIED && (
+                            <button onClick={() => handleCorrectionClick(payment)} className="text-red-600 hover:underline font-bold text-xs uppercase tracking-widest">Correction</button>
+                        )}
+                      </div>
                     </td>
                   )}
                 </tr>
@@ -207,11 +282,11 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                       ))}
                     </select>
                   </div>
+                  
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Payment Type</label>
                       <select 
-                        required
                         value={newPayment.paymentType}
                         onChange={e => setNewPayment({...newPayment, paymentType: e.target.value})}
                         className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
@@ -222,29 +297,14 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Financial Year</label>
-                      <select 
-                        required
-                        value={newPayment.appliedFinancialYear || ''}
-                        onChange={e => setNewPayment({...newPayment, appliedFinancialYear: e.target.value})}
-                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
-                      >
-                        <option value="">Select Year</option>
-                        {financialYears.map(year => (
-                          <option key={year} value={year}>{year}</option>
-                        ))}
-                      </select>
-                      <p className="text-[10px] text-slate-400 mt-1">Specify the fiscal year this payment settles.</p>
-                    </div>
-                    <div>
                       <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Method</label>
                       <select 
                         value={newPayment.paymentMethod}
                         onChange={e => setNewPayment({...newPayment, paymentMethod: e.target.value})}
-                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
                       >
                         <option value="BANK_TRANSFER">Bank Transfer</option>
-                        <option value="CASH">Cash Collection</option>
+                        <option value="CASH">Cash</option>
                         <option value="POS">POS Terminal</option>
                       </select>
                     </div>
@@ -253,52 +313,184 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                     <div>
                       <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Amount (₦)</label>
                       <input 
+                        type="number" 
                         required
-                        type="number"
-                        step="0.01"
                         value={newPayment.amount}
                         onChange={e => setNewPayment({...newPayment, amount: e.target.value})}
-                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono font-bold"
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
                         placeholder="0.00"
                       />
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Date</label>
                       <input 
+                        type="date" 
                         required
-                        type="date"
                         value={newPayment.paymentDate}
                         onChange={e => setNewPayment({...newPayment, paymentDate: e.target.value})}
-                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Financial Year</label>
+                      <select 
+                        value={newPayment.appliedFinancialYear}
+                        onChange={e => setNewPayment({...newPayment, appliedFinancialYear: e.target.value})}
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
+                      >
+                        {financialYears.map(year => (
+                          <option key={year} value={year}>{year}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Reference / Teller No</label>
+                      <input 
+                        type="text" 
+                        required
+                        value={newPayment.referenceNumber}
+                        onChange={e => setNewPayment({...newPayment, referenceNumber: e.target.value})}
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
+                        placeholder="REF-..."
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Reference Number</label>
-                    <input 
-                      required
-                      type="text"
-                      value={newPayment.referenceNumber}
-                      onChange={e => setNewPayment({...newPayment, referenceNumber: e.target.value})}
-                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
-                      placeholder="e.g. TRNX_2026_01"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Notes / Description</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Notes (Optional)</label>
                     <textarea 
                       value={newPayment.notes}
                       onChange={e => setNewPayment({...newPayment, notes: e.target.value})}
-                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                      placeholder="Optional details about this payment..."
-                      rows={2}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 h-20 resize-none"
+                      placeholder="Additional details..."
                     />
                   </div>
                </div>
-               <button type="submit" className="w-full bg-indigo-600 text-white font-black py-3 rounded-xl hover:bg-indigo-700 shadow-xl transition-all uppercase tracking-widest text-sm">
-                  Commit to Ledger
-               </button>
+               <div className="flex gap-4 pt-4 border-t border-slate-100">
+                 <button 
+                  type="button"
+                  onClick={() => setShowSubmitModal(false)}
+                  className="flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold uppercase tracking-widest text-xs transition-colors"
+                 >
+                   Cancel
+                 </button>
+                 <button 
+                  type="submit"
+                  className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold uppercase tracking-widest text-xs shadow-lg shadow-indigo-200 transition-all"
+                 >
+                   Record Payment
+                 </button>
+               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showCorrectionModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 bg-slate-800 text-white flex justify-between items-center">
+              <h3 className="text-lg font-bold uppercase tracking-widest">Payment Correction</h3>
+              <button onClick={() => setShowCorrectionModal(false)} className="text-white hover:opacity-75 transition-opacity">
+                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="p-6 space-y-6">
+              
+              {/* Mode Selection */}
+              <div className="flex p-1 bg-slate-100 rounded-lg gap-1">
+                <button 
+                  onClick={() => setCorrectionMode('RECLASSIFY')}
+                  className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${correctionMode === 'RECLASSIFY' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  Correct Date
+                </button>
+                <button 
+                  onClick={() => setCorrectionMode('REVERSE')}
+                  className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${correctionMode === 'REVERSE' ? 'bg-white shadow-sm text-amber-600' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  Reverse
+                </button>
+                {isSuperAdmin && (
+                  <button 
+                    onClick={() => setCorrectionMode('DELETE')}
+                    className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${correctionMode === 'DELETE' ? 'bg-white shadow-sm text-red-600' : 'text-slate-400 hover:text-slate-600'}`}
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+
+              <div className={`border p-4 rounded-xl text-xs ${correctionMode === 'DELETE' ? 'bg-red-50 border-red-100 text-red-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}>
+                <p className="font-bold mb-1">
+                    {correctionMode === 'DELETE' ? 'DANGER ZONE:' : 'Audit Warning:'}
+                </p>
+                {correctionMode === 'REVERSE' && "This will permanently reverse the payment via a contra-entry. The original record will be preserved but marked as reversed."}
+                {correctionMode === 'RECLASSIFY' && "This will reverse the original payment and create a NEW payment record with the corrected details. Both actions will be logged."}
+                {correctionMode === 'DELETE' && "This will PERMANENTLY REMOVE the payment and its associated ledger entries from the database. This action CANNOT be undone and destroys the audit trail."}
+              </div>
+
+              {correctionMode === 'RECLASSIFY' && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Correct Date</label>
+                    <input 
+                      type="date" 
+                      value={newPaymentDate}
+                      onChange={e => setNewPaymentDate(e.target.value)}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Financial Year</label>
+                    <select 
+                      value={newFinancialYear}
+                      onChange={e => setNewFinancialYear(e.target.value)}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
+                    >
+                      {financialYears.map(year => (
+                        <option key={year} value={year}>{year}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {correctionMode !== 'DELETE' && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Reason for Correction (Required)</label>
+                    <textarea 
+                      required
+                      value={correctionReason}
+                      onChange={e => setCorrectionReason(e.target.value)}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 h-24 resize-none"
+                      placeholder="e.g., Wrong financial year selected, Operator error..."
+                    />
+                  </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                 <button 
+                  onClick={() => setShowCorrectionModal(false)}
+                  className="flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold uppercase tracking-widest text-xs transition-colors"
+                 >
+                   Cancel
+                 </button>
+                 <button 
+                  onClick={confirmCorrection}
+                  className={`flex-1 px-4 py-3 text-white rounded-xl font-bold uppercase tracking-widest text-xs shadow-lg transition-all ${
+                    correctionMode === 'REVERSE' 
+                      ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200' 
+                      : correctionMode === 'DELETE'
+                        ? 'bg-red-600 hover:bg-red-700 shadow-red-200'
+                        : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
+                  }`}
+                 >
+                   {correctionMode === 'REVERSE' ? 'Confirm Reversal' : correctionMode === 'DELETE' ? 'Permanently Delete' : 'Apply Correction'}
+                 </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

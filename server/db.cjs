@@ -155,6 +155,10 @@ class DbService {
       await this.ensureColumn("ledger_entry", "applied_financial_year", "INTEGER");
       await this.ensureColumn("ledger_entry", "posting_type", "TEXT");
       await this.ensureColumn("payment", "applied_financial_year", "INTEGER");
+      await this.ensureColumn("payment", "reversal_reference_id", "TEXT");
+      await this.ensureColumn("payment", "correction_reason", "TEXT");
+      await this.ensureColumn("payment", "corrected_by", "TEXT");
+      await this.ensureColumn("payment", "corrected_at", "TEXT");
       await this.ensureColumn("expense", "beneficiary", "TEXT");
 
       await this.run(`

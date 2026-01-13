@@ -36,7 +36,8 @@ export enum AccountType {
 export enum PaymentStatus {
   PENDING = 'PENDING',
   VERIFIED = 'VERIFIED',
-  REJECTED = 'REJECTED'
+  REJECTED = 'REJECTED',
+  REVERSED = 'REVERSED'
 }
 
 export enum ExpenseStatus {
@@ -70,7 +71,8 @@ export enum PostingType {
   OPENING_BALANCE = 'OPENING_BALANCE',
   CURRENT_YEAR_CHARGE = 'CURRENT_YEAR_CHARGE',
   ARREARS_SETTLEMENT = 'ARREARS_SETTLEMENT',
-  GENERAL_PAYMENT = 'GENERAL_PAYMENT'
+  GENERAL_PAYMENT = 'GENERAL_PAYMENT',
+  PAYMENT_REVERSAL = 'PAYMENT_REVERSAL'
 }
 
 export interface LedgerEntry {
@@ -103,6 +105,10 @@ export interface Payment {
   createdAt: string;
   appliedFinancialYear?: number;
   postingType?: PostingType;
+  reversalReferenceId?: string;
+  correctionReason?: string;
+  correctedBy?: string;
+  correctedAt?: string;
 }
 
 export interface Expense {
