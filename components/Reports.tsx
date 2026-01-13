@@ -113,17 +113,97 @@ const Reports: React.FC = () => {
   }, [financialMetrics, collectionEfficiency, members.length, pendingExpenses]);
 
   const handlePreview = (title: string) => {
-    setPreviewReport({
-      title,
-      data: {
-        timestamp: new Date().toLocaleString(),
-        summary: `Aggregated data for ${title} based on current FY ${currentYear} ledger states.`,
-        kpis: [
+    let reportData: any = {
+      timestamp: new Date().toLocaleString(),
+      summary: `Aggregated data for ${title} based on current FY ${currentYear} ledger states.`,
+      kpis: []
+    };
+
+    switch (title) {
+      case "Income Statement":
+        const netIncome = financialMetrics.totalCreditYear - financialMetrics.totalDebitYear;
+        reportData.kpis = [
+          { label: 'Total Revenue', value: `₦${financialMetrics.totalCreditYear.toLocaleString()}` },
+          { label: 'Total Expenses', value: `₦${financialMetrics.totalDebitYear.toLocaleString()}` },
+          { label: 'Net Surplus/Deficit', value: `₦${netIncome.toLocaleString()}` },
+          { label: 'Operating Ratio', value: financialMetrics.totalCreditYear > 0 ? `${((financialMetrics.totalDebitYear / financialMetrics.totalCreditYear) * 100).toFixed(1)}%` : 'N/A' }
+        ];
+        reportData.summary = `The unit generated ₦${financialMetrics.totalCreditYear.toLocaleString()} in revenue against ₦${financialMetrics.totalDebitYear.toLocaleString()} in expenses, resulting in a net ${netIncome >= 0 ? 'surplus' : 'deficit'} of ₦${Math.abs(netIncome).toLocaleString()}.`;
+        break;
+
+      case "Balance Sheet":
+        // Assets = Cash (Liquidity) + Receivables (Arrears)
+        const totalAssets = financialMetrics.totalAgingCredit + financialMetrics.totalOutstandingAging;
+        // Liabilities = Prepaid balances (Members with positive balance)
+        const totalLiabilities = members.filter(m => m.balance > 0).reduce((sum, m) => sum + m.balance, 0);
+        // Equity = Assets - Liabilities
+        const equity = totalAssets - totalLiabilities;
+        
+        reportData.kpis = [
+          { label: 'Total Assets', value: `₦${totalAssets.toLocaleString()}` },
+          { label: 'Total Liabilities', value: `₦${totalLiabilities.toLocaleString()}` },
+          { label: 'Unit Equity', value: `₦${equity.toLocaleString()}` },
+          { label: 'Liquidity Ratio', value: totalLiabilities > 0 ? (financialMetrics.totalAgingCredit / totalLiabilities).toFixed(2) : '∞' }
+        ];
+        reportData.summary = `The unit possesses total assets of ₦${totalAssets.toLocaleString()} (including receivables), with current liabilities of ₦${totalLiabilities.toLocaleString()}.`;
+        break;
+
+      case "Collection Breakout":
+        reportData.kpis = [
+          { label: 'National Dues', value: `₦${financialMetrics.totalNational.toLocaleString()}` },
+          { label: 'Unit Dues', value: `₦${financialMetrics.totalUnit.toLocaleString()}` },
+          { label: 'Welfare', value: `₦${financialMetrics.totalWelfare.toLocaleString()}` },
+          { label: 'Development', value: `₦${financialMetrics.totalDevelopment.toLocaleString()}` }
+        ];
+        reportData.summary = `Breakdown of expected collections based on active membership: National (₦${financialMetrics.totalNational.toLocaleString()}), Unit (₦${financialMetrics.totalUnit.toLocaleString()}), and others.`;
+        break;
+
+      case "Arrears Aging":
+        const debtors = members
+          .map(m => ({ ...m, totalDebt: (m.balance + (m.previousBalance || 0)) }))
+          .filter(m => m.totalDebt < 0)
+          .sort((a, b) => a.totalDebt - b.totalDebt); // Ascending (most negative first)
+        
+        const topDebtors = debtors.slice(0, 5);
+        const totalArrears = debtors.reduce((sum, m) => sum + Math.abs(m.totalDebt), 0);
+        
+        reportData.kpis = [
+          { label: 'Total Arrears', value: `₦${totalArrears.toLocaleString()}` },
+          { label: 'Debtor Count', value: debtors.length.toString() },
+          { label: 'Avg Arrears', value: debtors.length > 0 ? `₦${(totalArrears / debtors.length).toLocaleString(undefined, {maximumFractionDigits: 0})}` : '₦0' },
+          { label: 'Highest Arrear', value: debtors.length > 0 ? `₦${Math.abs(debtors[0].totalDebt).toLocaleString()}` : '₦0' }
+        ];
+        reportData.summary = `There are ${debtors.length} members with outstanding balances totaling ₦${totalArrears.toLocaleString()}.`;
+        reportData.headers = ['Member Name', 'Service No', 'Outstanding Balance'];
+        reportData.rows = topDebtors.map(d => [d.fullName, d.membershipId, `₦${Math.abs(d.totalDebt).toLocaleString()}`]);
+        break;
+
+      case "Budget Variance":
+        // Estimated Budget = Sum of all expected dues
+        const expectedRevenue = financialMetrics.totalNational + financialMetrics.totalUnit + financialMetrics.totalWelfare + financialMetrics.totalDevelopment;
+        const actualRevenue = financialMetrics.totalCreditYear;
+        const variance = actualRevenue - expectedRevenue;
+        
+        reportData.kpis = [
+          { label: 'Expected Revenue', value: `₦${expectedRevenue.toLocaleString()}` },
+          { label: 'Actual Revenue', value: `₦${actualRevenue.toLocaleString()}` },
+          { label: 'Variance (Abs)', value: `₦${Math.abs(variance).toLocaleString()}` },
+          { label: 'Performance', value: `${((actualRevenue / expectedRevenue) * 100).toFixed(1)}%` }
+        ];
+        reportData.summary = `Actual revenue is ${variance >= 0 ? 'above' : 'below'} projections by ₦${Math.abs(variance).toLocaleString()} (${((actualRevenue / expectedRevenue) * 100).toFixed(1)}% of target).`;
+        break;
+
+      default:
+        reportData.kpis = [
           { label: 'Total Entries', value: ledger.length },
           { label: 'Yearly Credit', value: `₦${financialMetrics.totalCreditYear.toLocaleString()}` },
           { label: 'Yearly Debit', value: `₦${financialMetrics.totalDebitYear.toLocaleString()}` }
-        ]
-      }
+        ];
+    }
+
+    setPreviewReport({
+      title,
+      data: reportData
     });
   };
 
@@ -180,6 +260,31 @@ const Reports: React.FC = () => {
                   </div>
                 ))}
               </div>
+
+              {/* Optional Table for List Data */}
+              {previewReport.data.rows && (
+                <div className="mt-4 border border-slate-100 rounded-xl overflow-hidden">
+                   <table className="w-full text-left">
+                     <thead className="bg-slate-50">
+                       <tr>
+                         {previewReport.data.headers.map((h: string, i: number) => (
+                           <th key={i} className="px-4 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">{h}</th>
+                         ))}
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-100">
+                        {previewReport.data.rows.map((row: any[], i: number) => (
+                          <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                            {row.map((cell: any, j: number) => (
+                              <td key={j} className="px-4 py-3 text-xs font-bold text-slate-600">{cell}</td>
+                            ))}
+                          </tr>
+                        ))}
+                     </tbody>
+                   </table>
+                </div>
+              )}
+
               <p className="text-sm text-slate-600 leading-relaxed italic border-l-4 border-indigo-500 pl-4 py-2 bg-indigo-50/30 rounded-r-xl">
                 {previewReport.data.summary}
               </p>

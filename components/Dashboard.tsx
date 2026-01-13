@@ -12,37 +12,64 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const ledger = StorageService.getData<LedgerEntry>('u48_ledger');
 
+  const currentYear = new Date().getFullYear();
+
+  const userEntries = ledger.filter(e => e.memberId === user.id);
+
+  // 1. Total Credit Year to Date: Payments applied to current year
+  const creditYTD = userEntries
+    .filter(e => {
+      const appYear = e.appliedFinancialYear || new Date(e.entryDate).getFullYear();
+      // Check if it's a credit to member account (Payment)
+      // Defensively check creditAccountId exists
+      const isCredit = (e.creditAccountId && e.creditAccountId.startsWith('acc-member')) || e.referenceType === 'PAYMENT';
+      return appYear === currentYear && isCredit;
+    })
+    .reduce((sum, e) => sum + e.amount, 0);
+
+  // 2. Total Credit Aging: Payments applied to previous years
+  const creditAging = userEntries
+    .filter(e => {
+      const appYear = e.appliedFinancialYear || new Date(e.entryDate).getFullYear();
+      const isCredit = (e.creditAccountId && e.creditAccountId.startsWith('acc-member')) || e.referenceType === 'PAYMENT';
+      return appYear < currentYear && isCredit;
+    })
+    .reduce((sum, e) => sum + e.amount, 0);
+
+  const creditMetrics = { creditYTD, creditAging };
+
   // Individual Aging Metrics
   const agingMetrics = useMemo(() => {
-    const userEntries = ledger.filter(e => e.memberId === user.id);
+    // Strict Financial Year Isolation
+    const cyBalance = user.balance;
+    const arrears = user.arrearsBalance || 0;
     
-    const previousBalance = user.previousBalance || 0;
-    const previousCredit = previousBalance > 0 ? previousBalance : 0;
-    const previousDebit = previousBalance < 0 ? Math.abs(previousBalance) : 0;
-
-    const totalAgingCredit = userEntries
-      .filter(e => e.referenceType === 'PAYMENT')
-      .reduce((sum, e) => sum + e.amount, 0) + previousCredit;
-
-    const totalAgingDebit = userEntries
-      .filter(e => e.referenceType !== 'PAYMENT')
-      .reduce((sum, e) => sum + e.amount, 0) + previousDebit;
-
-    const currentAgingBalance = totalAgingCredit - totalAgingDebit;
-    const totalOutstandingAging = user.balance < 0 ? Math.abs(user.balance) : 0;
+    const cyDebt = cyBalance < 0 ? Math.abs(cyBalance) : 0;
+    const arrearsDebt = arrears < 0 ? Math.abs(arrears) : 0;
+    const totalOutstanding = cyDebt + arrearsDebt;
 
     return {
-      totalAgingCredit,
-      totalAgingDebit,
-      currentAgingBalance,
-      totalOutstandingAging
+      currentAgingBalance: cyBalance,
+      arrearsBalance: arrears,
+      totalOutstanding,
+      // Keep legacy fields to prevent build errors if used elsewhere
+      totalAgingCredit: 0,
+      totalAgingDebit: 0
     };
-  }, [ledger, user.id, user.balance, user.previousBalance]);
+  }, [user]);
 
   const getMemberStatus = (member: Member) => {
     const currentYear = new Date().getFullYear();
     const totalPaid = ledger
-      .filter(e => e.memberId === member.id && e.referenceType === 'PAYMENT' && new Date(e.entryDate).getFullYear() === currentYear)
+      .filter(e => {
+          // Strict Financial Year Isolation for Status Waterfall
+          // Only count payments explicitly applied to the current financial year
+          const appYear = e.appliedFinancialYear || new Date(e.entryDate).getFullYear();
+          // Defensively check creditAccountId
+          const isPayment = e.referenceType === 'PAYMENT' || (e.creditAccountId && e.creditAccountId.startsWith('acc-member'));
+          
+          return e.memberId === member.id && isPayment && appYear === currentYear;
+      })
       .reduce((sum, e) => sum + e.amount, 0);
 
     // Waterfall allocation logic (Based on SRS Appendix F)
@@ -76,15 +103,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                   </p>
                   <span className="w-1 h-1 bg-slate-300 rounded-full" />
                   <span className="text-indigo-600 font-black text-[10px] uppercase">{user.fullName}</span>
-                  <span className="w-1 h-1 bg-slate-300 rounded-full" />
-                  <div className="flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
-                    <span className="text-[9px] font-black text-emerald-600 uppercase tracking-tighter">Total Credit:</span>
-                    <span className="text-[9px] font-black text-emerald-700">₦{agingMetrics.totalAgingCredit.toLocaleString()}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full border ${agingMetrics.currentAgingBalance >= 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'}`}>
+                    <span className={`text-[9px] font-black uppercase tracking-tighter ${agingMetrics.currentAgingBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>CY Standing:</span>
+                    <span className={`text-[9px] font-black ${agingMetrics.currentAgingBalance >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>₦{agingMetrics.currentAgingBalance.toLocaleString()}</span>
                   </div>
-                  <div className="flex items-center gap-1 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100">
-                    <span className="text-[9px] font-black text-rose-600 uppercase tracking-tighter">Outstanding Aging:</span>
-                    <span className="text-[9px] font-black text-rose-700">₦{agingMetrics.totalOutstandingAging.toLocaleString()}</span>
-                  </div>
+                  
+                  {agingMetrics.arrearsBalance !== 0 && (
+                    <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full border ${agingMetrics.arrearsBalance >= 0 ? 'bg-indigo-50 border-indigo-100' : 'bg-orange-50 border-orange-100'}`}>
+                      <span className={`text-[9px] font-black uppercase tracking-tighter ${agingMetrics.arrearsBalance >= 0 ? 'text-indigo-600' : 'text-orange-600'}`}>Arrears:</span>
+                      <span className={`text-[9px] font-black ${agingMetrics.arrearsBalance >= 0 ? 'text-indigo-700' : 'text-orange-700'}`}>₦{agingMetrics.arrearsBalance.toLocaleString()}</span>
+                    </div>
+                  )}
+                  
+                  {agingMetrics.totalOutstanding > 0 && (
+                     <div className="flex items-center gap-1 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100">
+                        <span className="text-[9px] font-black text-rose-600 uppercase tracking-tighter">Total Due:</span>
+                        <span className="text-[9px] font-black text-rose-700">₦{agingMetrics.totalOutstanding.toLocaleString()}</span>
+                     </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -106,7 +144,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
               <div className="flex items-center justify-between relative z-10">
                 <div className="flex flex-col">
                   <span className="text-2xl mb-2">⚠️</span>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-red-700">Total Outstanding Aging</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-red-700">Total Outstanding</span>
                 </div>
                 <div className="w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
@@ -114,33 +152,40 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
               </div>
               <div className="text-right relative z-10">
                 <p className="text-xs font-black mb-1 text-red-600">IMMEDIATE ATTENTION</p>
-                <h4 className="text-2xl font-black tracking-tighter text-red-900">₦{agingMetrics.totalOutstandingAging.toLocaleString()}</h4>
-                <p className="text-[9px] font-bold uppercase tracking-widest text-red-400">Aging Arrears</p>
+                <h4 className="text-2xl font-black tracking-tighter text-red-900">₦{agingMetrics.totalOutstanding.toLocaleString()}</h4>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-red-400">Aging + Current</p>
               </div>
               <div className="absolute -bottom-6 -left-6 w-24 h-24 rounded-full bg-red-500 blur-2xl opacity-20" />
             </div>
           </div>
 
-          <div className="mt-12 pt-8 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-6">
-             <div className="flex items-center gap-4">
-                <div className={`p-4 rounded-2xl border ${user.balance < 0 ? 'bg-rose-50 border-rose-100 shadow-rose-50' : 'bg-emerald-50 border-emerald-100 shadow-emerald-50'} shadow-lg`}>
-                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Aging Standing (Net)</p>
+          <div className="mt-12 pt-8 border-t border-slate-100 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-6">
+             <div className="flex flex-wrap items-center gap-4 w-full xl:w-auto">
+                {/* Current Year Standing */}
+                <div className={`flex-1 min-w-[200px] p-4 rounded-2xl border ${user.balance < 0 ? 'bg-rose-50 border-rose-100 shadow-rose-50' : 'bg-emerald-50 border-emerald-100 shadow-emerald-50'} shadow-lg`}>
+                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Current Year Standing</p>
                    <h4 className={`text-2xl font-black ${user.balance < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                     ₦{Math.abs(user.balance).toLocaleString()} {user.balance < 0 ? 'Outstanding Aging' : 'Aging Credit'}
+                     ₦{Math.abs(user.balance).toLocaleString()} {user.balance < 0 ? 'Due' : 'Credit'}
                    </h4>
-                   <div className="mt-2 flex gap-4 text-[9px] font-bold uppercase tracking-tighter">
-                      <div className="flex items-center gap-1 text-emerald-600">
-                        <span>Total Lifetime Credits:</span>
-                        <span>₦{agingMetrics.totalAgingCredit.toLocaleString()}</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-rose-500">
-                        <span>Total Lifetime Debits:</span>
-                        <span>₦{agingMetrics.totalAgingDebit.toLocaleString()}</span>
-                      </div>
-                   </div>
+                </div>
+
+                {/* Total Credit YTD */}
+                <div className="flex-1 min-w-[200px] p-4 rounded-2xl border bg-indigo-50 border-indigo-100 shadow-lg shadow-indigo-50">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Total Credit YTD</p>
+                    <h4 className="text-2xl font-black text-indigo-600">
+                        ₦{creditMetrics.creditYTD.toLocaleString()}
+                    </h4>
+                </div>
+
+                {/* Total Credit Aging */}
+                <div className="flex-1 min-w-[200px] p-4 rounded-2xl border bg-purple-50 border-purple-100 shadow-lg shadow-purple-50">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Total Credit Aging</p>
+                    <h4 className="text-2xl font-black text-purple-600">
+                        ₦{creditMetrics.creditAging.toLocaleString()}
+                    </h4>
                 </div>
              </div>
-             <div className="bg-slate-50 px-6 py-4 rounded-2xl border border-slate-100 text-slate-500 text-xs italic max-w-md">
+             <div className="bg-slate-50 px-6 py-4 rounded-2xl border border-slate-100 text-slate-500 text-xs italic w-full xl:max-w-md">
                 "Dues are allocated via a <strong>waterfall protocol</strong>. Aging standing reflects your total lifetime financial health within the unit, reconciling all credits against historical assessments."
              </div>
           </div>

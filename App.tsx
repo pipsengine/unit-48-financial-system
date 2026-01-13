@@ -11,6 +11,8 @@ import MembersList from './components/MembersList';
 import Payments from './components/Payments';
 import Expenses from './components/Expenses';
 import Ledger from './components/Ledger';
+import GeneralLedger from './components/GeneralLedger';
+import BalanceSheet from './components/BalanceSheet';
 import DuesConfig from './components/DuesConfig';
 import Reports from './components/Reports';
 import AuditLogs from './components/AuditLogs';
@@ -159,6 +161,8 @@ const App: React.FC = () => {
       case 'payments': return <Payments user={currentUser} refreshDB={refreshDB} />;
       case 'expenses': return <Expenses user={currentUser} refreshDB={refreshDB} />;
       case 'ledger': return <Ledger user={currentUser} setActiveTab={setActiveTab} />;
+      case 'general_ledger': return <GeneralLedger />;
+      case 'balance_sheet': return <BalanceSheet />;
       case 'dues': return <DuesConfig refreshDB={refreshDB} />;
       case 'reports': return <Reports />;
       case 'audit': return <AuditLogs />;

@@ -104,7 +104,9 @@ class DbService {
           member_id TEXT,
           reference_type TEXT,
           reference_id TEXT,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          applied_financial_year INTEGER,
+          posting_type TEXT
         )
       `);
 
@@ -120,9 +122,21 @@ class DbService {
           reference_number TEXT,
           status TEXT NOT NULL,
           notes TEXT,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          applied_financial_year INTEGER
         )
       `);
+
+      // Migrations for existing tables
+      try {
+        await this.run("ALTER TABLE ledger_entry ADD COLUMN applied_financial_year INTEGER");
+      } catch (e) { /* Column likely exists */ }
+      try {
+        await this.run("ALTER TABLE ledger_entry ADD COLUMN posting_type TEXT");
+      } catch (e) { /* Column likely exists */ }
+      try {
+        await this.run("ALTER TABLE payment ADD COLUMN applied_financial_year INTEGER");
+      } catch (e) { /* Column likely exists */ }
 
       await this.run(`
         CREATE TABLE IF NOT EXISTS expense (

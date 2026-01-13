@@ -59,10 +59,18 @@ export interface Member {
   status: MemberStatus;
   role: UserRole;
   balance: number;
+  arrearsBalance?: number;
   previousBalance?: number;
   password?: string;
   address?: string;
   dob?: string;
+}
+
+export enum PostingType {
+  OPENING_BALANCE = 'OPENING_BALANCE',
+  CURRENT_YEAR_CHARGE = 'CURRENT_YEAR_CHARGE',
+  ARREARS_SETTLEMENT = 'ARREARS_SETTLEMENT',
+  GENERAL_PAYMENT = 'GENERAL_PAYMENT'
 }
 
 export interface LedgerEntry {
@@ -77,6 +85,8 @@ export interface LedgerEntry {
   referenceType: string;
   referenceId: string;
   createdAt: string;
+  appliedFinancialYear?: number;
+  postingType?: PostingType;
 }
 
 export interface Payment {
@@ -91,6 +101,8 @@ export interface Payment {
   status: PaymentStatus;
   notes?: string;
   createdAt: string;
+  appliedFinancialYear?: number;
+  postingType?: PostingType;
 }
 
 export interface Expense {

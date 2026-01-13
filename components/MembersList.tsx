@@ -104,7 +104,7 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Member Management</h2>
-          <p className="text-slate-500">Managing {members.length} registered Unit 48 personnel.</p>
+          <p className="text-slate-500">Managing {members.length} registered Unit 48 Special Marshalls.</p>
         </div>
         {currentUser.role === UserRole.SUPER_ADMIN && (
           <button 
@@ -153,7 +153,9 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
                 <th className="px-6 py-4">Role / Rank</th>
                 <th className="px-6 py-4">Contact Details</th>
                 <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4 text-right">Ledger Balance</th>
+                <th className="px-6 py-4 text-right">B/F (Arrears)</th>
+                <th className="px-6 py-4 text-right">Current FY</th>
+                <th className="px-6 py-4 text-right">Net Position</th>
                 <th className="px-6 py-4"></th>
               </tr>
             </thead>
@@ -183,8 +185,14 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
                       {member.status}
                     </span>
                   </td>
+                  <td className="px-6 py-4 text-right font-mono text-slate-500">
+                    ₦{(member.previousBalance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
                   <td className={`px-6 py-4 text-right font-mono font-black ${member.balance < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                     ₦{member.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className={`px-6 py-4 text-right font-mono font-black ${(member.balance + (member.previousBalance || 0)) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                    ₦{(member.balance + (member.previousBalance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </td>
                   <td className="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
                     <div className="flex items-center justify-end gap-3">

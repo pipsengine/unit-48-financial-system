@@ -1,7 +1,7 @@
 
 import { 
   Member, LedgerEntry, Payment, Expense, DueConfig, AuditLog, 
-  MemberStatus, UserRole, PaymentStatus, ExpenseStatus, DueType, BillingFrequency 
+  MemberStatus, UserRole, PaymentStatus, ExpenseStatus, DueType, BillingFrequency, PostingType
 } from '../types';
 
 const API_URL = (import.meta as any)?.env?.VITE_API_URL || 'http://localhost:3005/api';
@@ -49,6 +49,9 @@ export const StorageService = {
     try {
       await StorageService.sync();
       StorageService.isReady = true;
+      
+      // Check and apply annual dues on startup
+      await StorageService.checkAndApplyAnnualDues();
       
       // Setup polling for live data (every 5 seconds)
       setInterval(() => {
@@ -108,24 +111,46 @@ export const StorageService = {
   getMembers: (): Member[] => {
     const members = StorageService.getData<Member>('member');
     const ledger = StorageService.getData<LedgerEntry>('ledger_entry');
+    const currentYear = new Date().getFullYear();
 
     return members.map(m => {
       // Reimplement SQL logic in JS
-      // SELECT COALESCE(SUM(CASE WHEN reference_type = 'PAYMENT' THEN amount ELSE 0 END), 0) - ...
+      // Filter for Current Year only to ensure previous year payments/debts do not affect current year status
       const memberEntries = ledger.filter(l => l.memberId === m.id);
       
-      const paymentsSum = memberEntries
-        .filter(l => l.referenceType === 'PAYMENT')
+      // Calculate Current Year Balance (Strict Isolation)
+      const currentYearEntries = memberEntries.filter(l => 
+        (l.appliedFinancialYear || new Date(l.effectiveDate || l.entryDate).getFullYear()) === currentYear
+      );
+      
+      const currentPaymentsSum = currentYearEntries
+        .filter(l => l.creditAccountId.startsWith('acc-member'))
         .reduce((sum, l) => sum + l.amount, 0);
         
-      const debitsSum = memberEntries
-        .filter(l => l.referenceType !== 'PAYMENT')
+      const currentDebitsSum = currentYearEntries
+        .filter(l => l.debitAccountId.startsWith('acc-member'))
         .reduce((sum, l) => sum + l.amount, 0);
       
-      const ledgerBalance = paymentsSum - debitsSum;
-      const previousBalance = m.previousBalance || 0;
+      const ledgerBalance = currentPaymentsSum - currentDebitsSum;
+
+      // Calculate Arrears Balance (Strict Isolation)
+      // Sum of balances for all years < currentYear
+      const arrearsEntries = memberEntries.filter(l => 
+        (l.appliedFinancialYear || new Date(l.effectiveDate || l.entryDate).getFullYear()) < currentYear
+      );
+
+      const arrearsPaymentsSum = arrearsEntries
+        .filter(l => l.creditAccountId && l.creditAccountId.startsWith('acc-member'))
+        .reduce((sum, l) => sum + l.amount, 0);
+
+      const arrearsDebitsSum = arrearsEntries
+        .filter(l => l.debitAccountId && l.debitAccountId.startsWith('acc-member'))
+        .reduce((sum, l) => sum + l.amount, 0);
+
+      const arrearsBalance = arrearsPaymentsSum - arrearsDebitsSum;
       
-      return { ...m, balance: ledgerBalance + previousBalance };
+      // Previous balance is historic and ignored for current year isolation
+      return { ...m, balance: ledgerBalance, arrearsBalance };
     });
   },
 
@@ -211,18 +236,24 @@ export const StorageService = {
 
   postPaymentToLedger: async (payment: Payment) => {
     const id = `l-pay-${Date.now()}`;
+    const currentYear = new Date().getFullYear();
+    const appliedYear = payment.appliedFinancialYear || new Date(payment.paymentDate).getFullYear();
+    const isArrears = appliedYear < currentYear;
+
     const entry: LedgerEntry = {
         id,
         entryDate: payment.paymentDate,
         effectiveDate: payment.paymentDate,
         description: `Payment (${payment.paymentType || 'General'}): ${payment.referenceNumber}${payment.notes ? ` - ${payment.notes}` : ''}`,
         debitAccountId: 'acc-bank',
-        creditAccountId: 'acc-member-receivable',
+        creditAccountId: isArrears ? 'acc-member-arrears' : 'acc-member-receivable',
         amount: payment.amount,
         memberId: payment.memberId,
         referenceType: 'PAYMENT',
         referenceId: payment.id,
-        createdAt: new Date().toISOString() // Assuming ISO string for simplicity
+        createdAt: new Date().toISOString(),
+        appliedFinancialYear: appliedYear,
+        postingType: isArrears ? PostingType.ARREARS_SETTLEMENT : PostingType.GENERAL_PAYMENT
     };
     
     await fetch(`${API_URL}/ledger_entry`, {
@@ -266,8 +297,8 @@ export const StorageService = {
     const currentYear = new Date().getFullYear();
     const ledger = StorageService.getData<LedgerEntry>('ledger_entry');
     const hasAssessment = ledger.some(l => 
-        l.referenceType === 'AUTO_DEBIT_BATCH' && 
-        l.description.includes(`ANNUAL ASSESSMENT ${currentYear}`)
+        l.postingType === PostingType.CURRENT_YEAR_CHARGE && 
+        l.appliedFinancialYear === currentYear
     );
 
     if (!hasAssessment) {
@@ -298,7 +329,9 @@ export const StorageService = {
           memberId: member.id,
           referenceType: 'AUTO_DEBIT_BATCH',
           referenceId: batchId,
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          appliedFinancialYear: year,
+          postingType: PostingType.CURRENT_YEAR_CHARGE
       };
       return fetch(`${API_URL}/ledger_entry`, {
           method: 'POST',

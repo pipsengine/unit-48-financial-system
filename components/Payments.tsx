@@ -27,6 +27,8 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
   const isAdmin = user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN;
   const livePayments = StorageService.getPayments();
   const members = StorageService.getMembers();
+  const currentYear = new Date().getFullYear();
+  const financialYears = [currentYear - 2, currentYear - 1, currentYear, currentYear + 1];
 
   const filteredPayments = livePayments.filter(payment => {
     const matchesFilter = filter === 'ALL' || payment.status === filter;
@@ -43,7 +45,7 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
 
   const handleRecordDirect = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPayment.memberId || !newPayment.amount || !newPayment.referenceNumber) {
+    if (!newPayment.memberId || !newPayment.amount || !newPayment.referenceNumber || !newPayment.appliedFinancialYear) {
       alert("Please fill all compulsory fields.");
       return;
     }
@@ -61,7 +63,8 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
       referenceNumber: newPayment.referenceNumber,
       status: PaymentStatus.VERIFIED, // Direct payments are verified immediately
       notes: newPayment.notes,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      appliedFinancialYear: parseInt(newPayment.appliedFinancialYear)
     };
 
     StorageService.addPayment(payment, user.id);
@@ -74,7 +77,8 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
       paymentMethod: 'BANK_TRANSFER',
       paymentType: 'National Due',
       referenceNumber: '',
-      notes: ''
+      notes: '',
+      appliedFinancialYear: new Date().getFullYear().toString()
     });
   };
 
@@ -98,7 +102,7 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
           <h2 className="text-2xl font-bold text-slate-900">Live Payments</h2>
           <p className="text-slate-500">{isAdmin ? 'Verify submissions to update member ledgers.' : 'Review your verified contributions.'}</p>
         </div>
-        {isAdmin && (
+        {user.role === UserRole.SUPER_ADMIN && (
           <button onClick={() => setShowSubmitModal(true)} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
             Record Direct Payment
@@ -133,6 +137,8 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                 <th className="px-6 py-4">Ref Number</th>
                 {isAdmin && <th className="px-6 py-4">Member</th>}
                 <th className="px-6 py-4">Type</th>
+                <th className="px-6 py-4">Date</th>
+                <th className="px-6 py-4">Method</th>
                 <th className="px-6 py-4 text-right">Amount</th>
                 <th className="px-6 py-4">Status</th>
                 {isAdmin && <th className="px-6 py-4">Actions</th>}
@@ -145,6 +151,10 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                   {isAdmin && <td className="px-6 py-4 text-slate-900 font-bold">{payment.memberName}</td>}
                   <td className="px-6 py-4">
                     <span className="text-[10px] font-bold text-slate-500 uppercase">{payment.paymentType || 'General'}</span>
+                  </td>
+                  <td className="px-6 py-4 text-slate-600 font-mono text-xs">{payment.paymentDate}</td>
+                  <td className="px-6 py-4">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase bg-slate-100 px-2 py-1 rounded">{payment.paymentMethod.replace('_', ' ')}</span>
                   </td>
                   <td className="px-6 py-4 text-right font-black text-slate-900">₦{payment.amount.toLocaleString()}</td>
                   <td className="px-6 py-4">
@@ -164,7 +174,7 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={isAdmin ? 6 : 4} className="px-6 py-12 text-center text-slate-400 italic">No payment records found.</td>
+                  <td colSpan={isAdmin ? 8 : 6} className="px-6 py-12 text-center text-slate-400 italic">No payment records found.</td>
                 </tr>
               )}
             </tbody>
@@ -210,6 +220,21 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                           <option key={type} value={type}>{type}</option>
                         ))}
                       </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Financial Year</label>
+                      <select 
+                        required
+                        value={newPayment.appliedFinancialYear || ''}
+                        onChange={e => setNewPayment({...newPayment, appliedFinancialYear: e.target.value})}
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
+                      >
+                        <option value="">Select Year</option>
+                        {financialYears.map(year => (
+                          <option key={year} value={year}>{year}</option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-slate-400 mt-1">Specify the fiscal year this payment settles.</p>
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Method</label>

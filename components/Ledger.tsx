@@ -10,26 +10,53 @@ interface LedgerProps {
 
 const Ledger: React.FC<LedgerProps> = ({ user, setActiveTab }) => {
   const allLedgerEntries = StorageService.getData<LedgerEntry>('u48_ledger');
-  const filteredLedger = allLedgerEntries
-    .filter(entry => entry.memberId === user.id)
-    .sort((a, b) => new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime());
   
-  // Calculate running balance based on double-entry rules
-  let runningBalance = 0;
-  const entriesWithBalance = filteredLedger.map(entry => {
-    const isCredit = entry.referenceType === 'PAYMENT';
-    // If it's a payment, it's a credit to Member Receivable (reduces debt/increases balance)
-    // If it's a due, it's a debit to Member Receivable (increases debt/reduces balance)
-    runningBalance += isCredit ? entry.amount : -entry.amount;
-    return { ...entry, balance: runningBalance };
-  }).reverse(); // Latest at top for viewing
+  // Group by Financial Year and calculate isolated balances
+  const processedEntries = React.useMemo(() => {
+    const userEntries = allLedgerEntries.filter(entry => entry.memberId === user.id);
+    const entriesByYear: Record<number, LedgerEntry[]> = {};
+
+    // Group
+    userEntries.forEach(entry => {
+      const year = entry.appliedFinancialYear || new Date(entry.entryDate).getFullYear();
+      if (!entriesByYear[year]) entriesByYear[year] = [];
+      entriesByYear[year].push(entry);
+    });
+
+    let results: any[] = [];
+
+    // Process each year bucket
+    Object.keys(entriesByYear).forEach(yearStr => {
+      const year = parseInt(yearStr);
+      // Sort Ascending for calculation
+      const sorted = entriesByYear[year].sort((a, b) => new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime());
+      
+      let yearBalance = 0;
+      const calculated = sorted.map(entry => {
+        // Debit (Due) increases balance (Debt), Credit (Payment) decreases it
+        const isPayment = entry.referenceType === 'PAYMENT';
+        const change = isPayment ? -entry.amount : entry.amount;
+        yearBalance += change;
+        
+        return { 
+          ...entry, 
+          balance: yearBalance,
+          displayYear: year
+        };
+      });
+      results = [...results, ...calculated];
+    });
+
+    // Sort Descending for Display (Newest first)
+    return results.sort((a, b) => new Date(b.entryDate).getTime() - new Date(a.entryDate).getTime());
+  }, [allLedgerEntries, user.id]);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Personal Ledger</h2>
-          <p className="text-slate-500">History of all your dues and payments.</p>
+          <p className="text-slate-500">Period-isolated history of all dues and payments.</p>
         </div>
         <div className="flex gap-2">
           <button 
@@ -57,25 +84,31 @@ const Ledger: React.FC<LedgerProps> = ({ user, setActiveTab }) => {
             <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wider font-bold">
               <tr>
                 <th className="px-6 py-4">Date</th>
+                <th className="px-6 py-4">Applied Year</th>
+                <th className="px-6 py-4">Posting Year</th>
                 <th className="px-6 py-4">Description</th>
+                <th className="px-6 py-4">Type</th>
                 <th className="px-6 py-4 text-right">Debit (Due)</th>
                 <th className="px-6 py-4 text-right">Credit (Paid)</th>
                 <th className="px-6 py-4 text-right">Balance</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {entriesWithBalance.length > 0 ? (
-                entriesWithBalance.map(entry => (
+              {processedEntries.length > 0 ? (
+                processedEntries.map(entry => (
                   <tr key={entry.id} className="text-sm hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4 text-slate-500 font-mono">{entry.entryDate}</td>
+                    <td className="px-6 py-4 font-bold text-slate-600 text-center">{entry.appliedFinancialYear || '-'}</td>
+                    <td className="px-6 py-4 text-slate-500 text-center">{new Date(entry.entryDate).getFullYear()}</td>
                     <td className="px-6 py-4 font-medium text-slate-700">{entry.description}</td>
+                    <td className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase">{entry.postingType?.replace('_', ' ') || '-'}</td>
                     <td className="px-6 py-4 text-right font-mono text-red-600">
                       {entry.referenceType !== 'PAYMENT' ? `₦${entry.amount.toLocaleString()}` : '-'}
                     </td>
                     <td className="px-6 py-4 text-right font-mono text-emerald-600">
                       {entry.referenceType === 'PAYMENT' ? `₦${entry.amount.toLocaleString()}` : '-'}
                     </td>
-                    <td className={`px-6 py-4 text-right font-mono font-bold ${entry.balance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                    <td className={`px-6 py-4 text-right font-mono font-bold ${entry.balance > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
                       ₦{entry.balance.toLocaleString()}
                     </td>
                   </tr>
