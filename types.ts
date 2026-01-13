@@ -70,9 +70,18 @@ export interface Member {
 export enum PostingType {
   OPENING_BALANCE = 'OPENING_BALANCE',
   CURRENT_YEAR_CHARGE = 'CURRENT_YEAR_CHARGE',
+  ARREARS_CHARGE = 'ARREARS_CHARGE',
+  PAYMENT = 'PAYMENT',
   ARREARS_SETTLEMENT = 'ARREARS_SETTLEMENT',
-  GENERAL_PAYMENT = 'GENERAL_PAYMENT',
-  PAYMENT_REVERSAL = 'PAYMENT_REVERSAL'
+  DONATION = 'DONATION',
+  ADJUSTMENT = 'ADJUSTMENT',
+  REVERSAL = 'REVERSAL'
+}
+
+export enum LedgerStatus {
+  POSTED = 'POSTED',
+  PENDING = 'PENDING',
+  VOID = 'VOID'
 }
 
 export interface LedgerEntry {
@@ -87,8 +96,14 @@ export interface LedgerEntry {
   referenceType: string;
   referenceId: string;
   createdAt: string;
-  appliedFinancialYear?: number;
-  postingType?: PostingType;
+  appliedFinancialYear: number;
+  postingYear: number;
+  postingType: PostingType;
+  category: string;
+  status: LedgerStatus;
+  // Computed for UI
+  balance?: number;
+  displayYear?: number;
 }
 
 export interface Payment {

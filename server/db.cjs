@@ -153,7 +153,11 @@ class DbService {
 
       // Migrations for existing tables
       await this.ensureColumn("ledger_entry", "applied_financial_year", "INTEGER");
+      await this.ensureColumn("ledger_entry", "posting_year", "INTEGER");
       await this.ensureColumn("ledger_entry", "posting_type", "TEXT");
+      await this.ensureColumn("ledger_entry", "category", "TEXT");
+      await this.ensureColumn("ledger_entry", "status", "TEXT");
+
       await this.ensureColumn("payment", "applied_financial_year", "INTEGER");
       await this.ensureColumn("payment", "reversal_reference_id", "TEXT");
       await this.ensureColumn("payment", "correction_reason", "TEXT");

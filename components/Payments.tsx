@@ -329,7 +329,11 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                         type="date" 
                         required
                         value={newPayment.paymentDate}
-                        onChange={e => setNewPayment({...newPayment, paymentDate: e.target.value})}
+                        onChange={e => {
+                          const date = e.target.value;
+                          const year = date ? new Date(date).getFullYear().toString() : '';
+                          setNewPayment({...newPayment, paymentDate: date, appliedFinancialYear: year});
+                        }}
                         className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
                       />
                     </div>
@@ -337,15 +341,12 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Financial Year</label>
-                      <select 
+                      <input 
+                        type="text"
+                        readOnly
                         value={newPayment.appliedFinancialYear}
-                        onChange={e => setNewPayment({...newPayment, appliedFinancialYear: e.target.value})}
-                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
-                      >
-                        {financialYears.map(year => (
-                          <option key={year} value={year}>{year}</option>
-                        ))}
-                      </select>
+                        className="w-full px-4 py-2 bg-slate-100 border border-slate-200 rounded-lg outline-none text-slate-500 font-bold cursor-not-allowed"
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Reference / Teller No</label>

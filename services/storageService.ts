@@ -1,7 +1,19 @@
 
 import { 
-  Member, LedgerEntry, Payment, Expense, DueConfig, AuditLog, 
-  MemberStatus, UserRole, PaymentStatus, ExpenseStatus, DueType, BillingFrequency, PostingType
+  Member, 
+  LedgerEntry, 
+  Payment, 
+  Expense, 
+  DueConfig, 
+  AuditLog, 
+  MemberStatus, 
+  UserRole, 
+  PaymentStatus, 
+  ExpenseStatus, 
+  DueType, 
+  BillingFrequency, 
+  PostingType,
+  LedgerStatus
 } from '../types';
 
 const API_URL = (import.meta as any)?.env?.VITE_API_URL || 'http://localhost:3005/api';
@@ -311,7 +323,10 @@ export const StorageService = {
         referenceId: payment.id,
         createdAt: new Date().toISOString(),
         appliedFinancialYear: appliedYear,
-        postingType: isArrears ? PostingType.ARREARS_SETTLEMENT : PostingType.GENERAL_PAYMENT
+        postingYear: currentYear,
+        postingType: isArrears ? PostingType.ARREARS_SETTLEMENT : PostingType.PAYMENT,
+        category: 'DUES',
+        status: LedgerStatus.POSTED
     };
     
     await fetch(`${API_URL}/ledger_entry`, {
@@ -340,7 +355,10 @@ export const StorageService = {
         referenceId: payment.id,
         createdAt: new Date().toISOString(),
         appliedFinancialYear: appliedYear,
-        postingType: PostingType.PAYMENT_REVERSAL
+        postingYear: currentYear,
+        postingType: PostingType.REVERSAL,
+        category: 'DUES',
+        status: LedgerStatus.POSTED
     };
     
     await fetch(`${API_URL}/ledger_entry`, {
@@ -418,7 +436,10 @@ export const StorageService = {
           referenceId: batchId,
           createdAt: new Date().toISOString(),
           appliedFinancialYear: year,
-          postingType: PostingType.CURRENT_YEAR_CHARGE
+          postingYear: new Date().getFullYear(),
+          postingType: PostingType.CURRENT_YEAR_CHARGE,
+          category: 'DUES',
+          status: LedgerStatus.POSTED
       };
       return fetch(`${API_URL}/ledger_entry`, {
           method: 'POST',
@@ -480,5 +501,59 @@ export const StorageService = {
       }
       await StorageService.sync();
     }
+  },
+
+  getLedgerWithBalances: (memberId?: string): LedgerEntry[] => {
+    const allEntries = StorageService.getData<LedgerEntry>('ledger_entry');
+    const entries = memberId ? allEntries.filter(e => e.memberId === memberId) : allEntries;
+
+    // Filter by status POSTED
+    const postedEntries = entries.filter(e => e.status === LedgerStatus.POSTED);
+
+    // Group by Member + Year + Category for running balance calculation
+    // Sort Ascending for calculation: effective_date then created_at
+    const sortedForCalc = [...postedEntries].sort((a, b) => {
+        const dateA = new Date(a.effectiveDate).getTime();
+        const dateB = new Date(b.effectiveDate).getTime();
+        if (dateA !== dateB) return dateA - dateB;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+
+    const buckets: Record<string, number> = {};
+    
+    const calculatedEntries = sortedForCalc.map(entry => {
+        const year = entry.appliedFinancialYear;
+        const category = entry.category || 'GENERAL';
+        const bucketKey = `${entry.memberId}-${year}-${category}`;
+        
+        const currentBalance = buckets[bucketKey] || 0;
+        
+        // Debit (Due) increases balance (Debt), Credit (Payment) decreases it
+        // Debit Account = Member means they owe money (Increase Balance)
+        // Credit Account = Member means they paid money (Decrease Balance)
+        let change = 0;
+        if (entry.debitAccountId && entry.debitAccountId.includes('member')) {
+            change = entry.amount;
+        } else if (entry.creditAccountId && entry.creditAccountId.includes('member')) {
+            change = -entry.amount;
+        }
+
+        const newBalance = currentBalance + change;
+        buckets[bucketKey] = newBalance;
+
+        return {
+            ...entry,
+            balance: newBalance,
+            displayYear: year
+        };
+    });
+
+    // Return sorted by date descending for display
+    return calculatedEntries.sort((a, b) => {
+        const dateA = new Date(a.effectiveDate).getTime();
+        const dateB = new Date(b.effectiveDate).getTime();
+        if (dateA !== dateB) return dateB - dateA;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
   }
 };
