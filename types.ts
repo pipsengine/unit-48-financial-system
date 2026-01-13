@@ -75,7 +75,8 @@ export enum PostingType {
   ARREARS_SETTLEMENT = 'ARREARS_SETTLEMENT',
   DONATION = 'DONATION',
   ADJUSTMENT = 'ADJUSTMENT',
-  REVERSAL = 'REVERSAL'
+  REVERSAL = 'REVERSAL',
+  EXPENSE = 'EXPENSE'
 }
 
 export enum LedgerStatus {

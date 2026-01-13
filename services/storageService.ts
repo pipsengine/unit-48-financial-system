@@ -368,6 +368,37 @@ export const StorageService = {
     });
   },
 
+  postExpenseToLedger: async (expense: Expense) => {
+    const id = `l-exp-${Date.now()}`;
+    const currentYear = new Date().getFullYear();
+    const appliedYear = new Date(expense.incurredDate).getFullYear();
+
+    const entry: LedgerEntry = {
+        id,
+        entryDate: expense.incurredDate,
+        effectiveDate: expense.incurredDate,
+        description: `Expense: ${expense.title} (${expense.category})`,
+        debitAccountId: `acc-expense-${expense.category.toLowerCase()}`,
+        creditAccountId: 'acc-bank',
+        amount: expense.amount,
+        memberId: expense.submittedBy,
+        referenceType: 'EXPENSE',
+        referenceId: expense.id,
+        createdAt: new Date().toISOString(),
+        appliedFinancialYear: appliedYear,
+        postingYear: currentYear,
+        postingType: PostingType.EXPENSE,
+        category: expense.category,
+        status: LedgerStatus.POSTED
+    };
+    
+    await fetch(`${API_URL}/ledger_entry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entry)
+    });
+  },
+
   addExpense: async (expense: Expense, userId: string) => {
     try {
         await fetch(`${API_URL}/expense`, {
@@ -389,7 +420,18 @@ export const StorageService = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status })
         });
+        
         await StorageService.sync();
+
+        // Post to ledger if PAID
+        if (status === ExpenseStatus.PAID) {
+            const expense = StorageService.getExpenses().find(e => e.id === expenseId);
+            if (expense) {
+                await StorageService.postExpenseToLedger(expense);
+                await StorageService.sync();
+            }
+        }
+
         StorageService.logAudit(adminId, `EXPENSE_${status}`, 'EXPENSE', expenseId);
     } catch (e) {
         console.error("updateExpenseStatus failed:", e);
@@ -412,45 +454,39 @@ export const StorageService = {
   },
 
   applyFullYearAssessment: async (year: number) => {
-    const activeMembers = StorageService.getMembers().filter(m => m.status === MemberStatus.ACTIVE);
+    // New Batch Implementation
     const configs = StorageService.getData<DueConfig>('dues_config');
-    const batchId = `year-assessment-${year}-${Date.now()}`;
-    
     const annualTotal = configs.filter(c => c.billingFrequency === BillingFrequency.ANNUAL).reduce((sum, c) => sum + c.amount, 0);
     const monthlyTotal = configs.filter(c => c.billingFrequency === BillingFrequency.MONTHLY).reduce((sum, c) => sum + (c.amount * 12), 0);
     const totalAssessment = annualTotal + monthlyTotal;
+    const batchId = `year-assessment-${year}-${Date.now()}`;
 
-    // We can batch insert via Promise.all
-    const promises = activeMembers.map(member => {
-      const id = `l-year-${year}-${member.id}`;
-      const entry: LedgerEntry = {
-          id,
-          entryDate: `${year}-01-01`,
-          effectiveDate: `${year}-01-01`,
-          description: `ANNUAL ASSESSMENT ${year} (Total Dues: ₦${totalAssessment.toLocaleString()})`,
-          debitAccountId: 'acc-member-receivable',
-          creditAccountId: 'acc-revenue-annual',
-          amount: totalAssessment,
-          memberId: member.id,
-          referenceType: 'AUTO_DEBIT_BATCH',
-          referenceId: batchId,
-          createdAt: new Date().toISOString(),
-          appliedFinancialYear: year,
-          postingYear: new Date().getFullYear(),
-          postingType: PostingType.CURRENT_YEAR_CHARGE,
-          category: 'DUES',
-          status: LedgerStatus.POSTED
-      };
-      return fetch(`${API_URL}/ledger_entry`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(entry)
-      });
-    });
+    try {
+        const response = await fetch(`${API_URL}/batch/assessments`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('u48_token')}`
+            },
+            body: JSON.stringify({
+                year,
+                amount: totalAssessment,
+                description: `ANNUAL ASSESSMENT ${year} (Total Dues: ₦${totalAssessment.toLocaleString()})`,
+                referenceId: batchId
+            })
+        });
 
-    await Promise.all(promises);
-    await StorageService.sync();
-    StorageService.logAudit('SYSTEM', `POST_ANNUAL_ASSESSMENT_${year}`, 'SYSTEM', batchId);
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Batch assessment failed');
+        }
+
+        await StorageService.sync();
+        StorageService.logAudit('SYSTEM', `POST_ANNUAL_ASSESSMENT_${year}`, 'SYSTEM', batchId);
+    } catch (e) {
+        console.error("applyFullYearAssessment failed:", e);
+        throw e;
+    }
   },
 
   logAudit: async (userId: string, action: string, entityType: string, entityId: string) => {
@@ -512,12 +548,20 @@ export const StorageService = {
 
     // Group by Member + Year + Category for running balance calculation
     // Sort Ascending for calculation: effective_date then created_at
-    const sortedForCalc = [...postedEntries].sort((a, b) => {
-        const dateA = new Date(a.effectiveDate).getTime();
-        const dateB = new Date(b.effectiveDate).getTime();
-        if (dateA !== dateB) return dateA - dateB;
-        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    });
+    // Filter out entries that don't affect the member's balance (e.g. Expenses paid by bank)
+    const sortedForCalc = [...postedEntries]
+        .filter(entry => {
+            const isDebit = entry.debitAccountId && entry.debitAccountId.includes('member');
+            const isCredit = entry.creditAccountId && entry.creditAccountId.includes('member');
+            // Also filter out actual zero-amount entries if any exist
+            return (isDebit || isCredit) && entry.amount > 0;
+        })
+        .sort((a, b) => {
+            const dateA = new Date(a.effectiveDate).getTime();
+            const dateB = new Date(b.effectiveDate).getTime();
+            if (dateA !== dateB) return dateA - dateB;
+            return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        });
 
     const buckets: Record<string, number> = {};
     

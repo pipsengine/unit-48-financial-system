@@ -262,7 +262,7 @@ const App: React.FC = () => {
       case 'payments': return <Payments user={currentUser} refreshDB={refreshDB} />;
       case 'expenses': return <Expenses user={currentUser} refreshDB={refreshDB} />;
       case 'ledger': return <Ledger user={currentUser} setActiveTab={setActiveTab} />;
-      case 'general_ledger': return <GeneralLedger />;
+      case 'general_ledger': return <GeneralLedger user={currentUser} refreshDB={refreshDB} />;
       case 'balance_sheet': return <BalanceSheet />;
       case 'dues': return <DuesConfig refreshDB={refreshDB} />;
       case 'reports': return <Reports />;

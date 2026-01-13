@@ -248,6 +248,68 @@ app.get('/api/sync', authenticateToken, async (req, res) => {
   }
 });
 
+app.post('/api/batch/assessments', authenticateToken, async (req, res) => {
+  try {
+    const { year, amount, description, referenceId } = req.body;
+    
+    if (!year || !amount) {
+      return res.status(400).json({ error: 'Year and Amount are required' });
+    }
+
+    // Get all active members
+    const members = await db.all('SELECT * FROM member WHERE status = ?', ['ACTIVE']);
+    
+    if (members.length === 0) {
+      return res.json({ message: 'No active members found', count: 0 });
+    }
+
+    const ledgerEntries = members.map(member => ({
+      id: `l-year-${year}-${member.id}`,
+      entry_date: `${year}-01-01`,
+      effective_date: `${year}-01-01`,
+      description: description || `ANNUAL ASSESSMENT ${year}`,
+      debit_account_id: 'acc-member-receivable',
+      credit_account_id: 'acc-revenue-annual',
+      amount: amount,
+      member_id: member.id,
+      reference_type: 'AUTO_DEBIT_BATCH',
+      reference_id: referenceId || `year-assessment-${year}-${Date.now()}`,
+      created_at: new Date().toISOString(),
+      applied_financial_year: year,
+      posting_year: new Date().getFullYear(),
+      posting_type: 'CURRENT_YEAR_CHARGE',
+      category: 'DUES',
+      status: 'POSTED'
+    }));
+
+    // Batch Insert using transaction
+    // SQLite doesn't support bulk insert with json simply, we loop in transaction
+    // Or we can construct one big INSERT statement
+    
+    await db.run('BEGIN TRANSACTION');
+    
+    try {
+      const stmt = `INSERT OR REPLACE INTO ledger_entry (
+        id, entry_date, effective_date, description, debit_account_id, credit_account_id, amount, member_id, reference_type, reference_id, created_at, applied_financial_year, posting_year, posting_type, category, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+      for (const entry of ledgerEntries) {
+        await db.run(stmt, Object.values(entry));
+      }
+
+      await db.run('COMMIT');
+      res.json({ success: true, count: ledgerEntries.length });
+    } catch (e) {
+      await db.run('ROLLBACK');
+      throw e;
+    }
+
+  } catch (err) {
+    console.error('Batch assessment error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Generic CRUD endpoints
 const tables = ['member', 'payment', 'ledger_entry', 'expense', 'dues_config', 'audit_log'];
 
