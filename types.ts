@@ -113,6 +113,7 @@ export interface Expense {
   amount: number;
   incurredDate: string;
   submittedBy: string;
+  beneficiary?: string;
   status: ExpenseStatus;
   createdAt: string;
 }

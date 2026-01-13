@@ -88,7 +88,10 @@ const Expenses: React.FC<ExpensesProps> = ({ user, refreshDB }) => {
                     </div>
                     <div>
                       <h4 className="text-base font-black text-slate-900 leading-tight">{exp.title}</h4>
-                      <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">{exp.category} • {exp.incurredDate}</p>
+                      <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">
+                        {exp.category} • {exp.incurredDate}
+                        {exp.beneficiary && <span className="text-indigo-500"> • Payee: {exp.beneficiary}</span>}
+                      </p>
                       <p className="text-sm text-slate-500 mt-2 line-clamp-1">{exp.description}</p>
                     </div>
                   </div>
@@ -130,6 +133,10 @@ const Expenses: React.FC<ExpensesProps> = ({ user, refreshDB }) => {
                     <div>
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Expense Title</label>
                       <input required value={newExp.title} onChange={e => setNewExp({...newExp, title: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-bold" placeholder="e.g. Unit Maintenance" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Beneficiary (Payee)</label>
+                      <input required value={newExp.beneficiary} onChange={e => setNewExp({...newExp, beneficiary: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-bold" placeholder="e.g. Vendor Name or Member Name" />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                        <div>

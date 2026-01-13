@@ -128,7 +128,7 @@ const BalanceSheet: React.FC = () => {
     // Total Expenses (Paid + Unpaid/Accrued)
     // In accrual, we deduct all incurred expenses
     const totalIncurredExpenses = expenses
-        .filter(e => e.status !== ExpenseStatus.DRAFT && e.status !== ExpenseStatus.REJECTED && e.status !== ExpenseStatus.CANCELLED)
+        .filter(e => e.status === ExpenseStatus.PAID || e.status === ExpenseStatus.APPROVED)
         .reduce((sum, e) => sum + e.amount, 0);
 
     const accumulatedSurplus = unallocatedRevenue - totalIncurredExpenses;

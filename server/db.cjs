@@ -137,6 +137,9 @@ class DbService {
       try {
         await this.run("ALTER TABLE payment ADD COLUMN applied_financial_year INTEGER");
       } catch (e) { /* Column likely exists */ }
+      try {
+        await this.run("ALTER TABLE expense ADD COLUMN beneficiary TEXT");
+      } catch (e) { /* Column likely exists */ }
 
       await this.run(`
         CREATE TABLE IF NOT EXISTS expense (
@@ -147,6 +150,7 @@ class DbService {
           amount REAL NOT NULL,
           incurred_date TEXT NOT NULL,
           submitted_by TEXT NOT NULL,
+          beneficiary TEXT,
           status TEXT NOT NULL,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
