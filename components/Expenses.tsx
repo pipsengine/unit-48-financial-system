@@ -15,7 +15,8 @@ const Expenses: React.FC<ExpensesProps> = ({ user, refreshDB }) => {
     category: 'ADMINISTRATIVE',
     amount: '',
     incurredDate: new Date().toISOString().split('T')[0],
-    description: ''
+    description: '',
+    beneficiary: ''
   });
 
   const isAdmin = user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN;
@@ -36,13 +37,14 @@ const Expenses: React.FC<ExpensesProps> = ({ user, refreshDB }) => {
       amount: parseFloat(newExp.amount),
       incurredDate: newExp.incurredDate,
       submittedBy: user.id,
+      beneficiary: newExp.beneficiary,
       status: ExpenseStatus.UNDER_REVIEW,
       createdAt: new Date().toISOString()
     };
     StorageService.addExpense(expense, user.id);
     refreshDB();
     setShowModal(false);
-    setNewExp({ title: '', category: 'ADMINISTRATIVE', amount: '', incurredDate: new Date().toISOString().split('T')[0], description: '' });
+    setNewExp({ title: '', category: 'ADMINISTRATIVE', amount: '', incurredDate: new Date().toISOString().split('T')[0], description: '', beneficiary: '' });
   };
 
   const getStatusColor = (status: ExpenseStatus) => {

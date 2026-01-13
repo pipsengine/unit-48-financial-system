@@ -61,6 +61,19 @@ class DbService {
     });
   }
 
+  async ensureColumn(tableName, columnName, columnDef) {
+    try {
+      const cols = await this.all(`PRAGMA table_info(${tableName})`);
+      const exists = cols.some(c => c.name === columnName);
+      if (!exists) {
+        await this.run(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDef}`);
+        console.log(`Added column ${columnName} to ${tableName}`);
+      }
+    } catch (err) {
+      console.error(`Failed to ensure column ${columnName} in ${tableName}:`, err);
+    }
+  }
+
   async init() {
     try {
       await this.run(`
@@ -128,18 +141,10 @@ class DbService {
       `);
 
       // Migrations for existing tables
-      try {
-        await this.run("ALTER TABLE ledger_entry ADD COLUMN applied_financial_year INTEGER");
-      } catch (e) { /* Column likely exists */ }
-      try {
-        await this.run("ALTER TABLE ledger_entry ADD COLUMN posting_type TEXT");
-      } catch (e) { /* Column likely exists */ }
-      try {
-        await this.run("ALTER TABLE payment ADD COLUMN applied_financial_year INTEGER");
-      } catch (e) { /* Column likely exists */ }
-      try {
-        await this.run("ALTER TABLE expense ADD COLUMN beneficiary TEXT");
-      } catch (e) { /* Column likely exists */ }
+      await this.ensureColumn("ledger_entry", "applied_financial_year", "INTEGER");
+      await this.ensureColumn("ledger_entry", "posting_type", "TEXT");
+      await this.ensureColumn("payment", "applied_financial_year", "INTEGER");
+      await this.ensureColumn("expense", "beneficiary", "TEXT");
 
       await this.run(`
         CREATE TABLE IF NOT EXISTS expense (
