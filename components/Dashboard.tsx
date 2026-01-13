@@ -41,7 +41,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   // Individual Aging Metrics
   const agingMetrics = useMemo(() => {
     // Strict Financial Year Isolation
-    const cyBalance = user.balance;
+    const cyBalance = user.balance || 0;
     const arrears = user.arrearsBalance || 0;
     
     const cyDebt = cyBalance < 0 ? Math.abs(cyBalance) : 0;

@@ -97,7 +97,7 @@ const App: React.FC = () => {
       if (res.ok) {
         // Find local member object to ensure all fields/methods if any
         const members = StorageService.getMembers();
-        const user = members.find(m => m.id === data.user.id) || data.user;
+        const user = members.find(m => m.id === data.user.id) || { ...data.user, balance: 0, arrearsBalance: 0 };
         
         setCurrentUser(user);
         setToken(data.token);
