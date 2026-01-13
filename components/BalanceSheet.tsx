@@ -26,8 +26,10 @@ const BalanceSheet: React.FC = () => {
     // Sum of all negative balances (Debts)
     // We treat negative balance as Asset (Receivable)
     const arrears = members
-      .filter(m => m.balance < 0)
-      .reduce((sum, m) => sum + Math.abs(m.balance), 0);
+      .reduce((sum, m) => {
+        const totalBalance = m.balance + (m.arrearsBalance || 0);
+        return totalBalance < 0 ? sum + Math.abs(totalBalance) : sum;
+      }, 0);
 
     const totalAssets = cashAtBank + arrears;
 
@@ -36,13 +38,15 @@ const BalanceSheet: React.FC = () => {
     // Dues Received in Advance
     // Sum of all positive balances (Credits)
     const prepaidDues = members
-      .filter(m => m.balance > 0)
-      .reduce((sum, m) => sum + m.balance, 0);
+      .reduce((sum, m) => {
+        const totalBalance = m.balance + (m.arrearsBalance || 0);
+        return totalBalance > 0 ? sum + totalBalance : sum;
+      }, 0);
 
     // Unpaid Obligations
     // Expenses approved but not yet paid
     const unpaidExpenses = expenses
-      .filter(e => e.status === ExpenseStatus.APPROVED || e.status === ExpenseStatus.SUBMITTED)
+      .filter(e => e.status === ExpenseStatus.APPROVED)
       .reduce((sum, e) => sum + e.amount, 0);
 
     const totalLiabilities = prepaidDues + unpaidExpenses;
