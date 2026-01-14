@@ -339,6 +339,114 @@ app.post('/api/batch/assessments', authenticateToken, async (req, res) => {
   }
 });
 
+// Apply current-year assessment for a single member (for new members)
+app.post('/api/member/:id/assess-current-year', authenticateToken, async (req, res) => {
+  try {
+    const memberId = req.params.id;
+    const body = req.body || {};
+    const year = body.year || new Date().getFullYear();
+
+    const member = await db.get('SELECT * FROM member WHERE id = ? AND status = ?', [memberId, 'ACTIVE']);
+    if (!member) {
+      return res.status(404).json({ error: 'Member not found or not active' });
+    }
+
+    const configs = await db.all('SELECT * FROM dues_config');
+    if (!configs || configs.length === 0) {
+      return res.status(400).json({ error: 'No dues configuration defined' });
+    }
+
+    const fundMap = {
+      NATIONAL: 'acc-fund-national',
+      UNIT: 'acc-fund-unit',
+      WELFARE: 'acc-fund-welfare',
+      DEVELOPMENT: 'acc-fund-development'
+    };
+
+    const categoryMap = {
+      NATIONAL: 'NATIONAL_DUE',
+      UNIT: 'UNIT_DUE',
+      WELFARE: 'WELFARE_DUE',
+      DEVELOPMENT: 'DEVELOPMENT_LEVY'
+    };
+
+    const allocations = configs.map((config) => {
+      const annualAmt =
+        config.billing_frequency === 'ANNUAL'
+          ? config.amount
+          : config.amount * 12;
+
+      return {
+        account: fundMap[config.due_type] || 'acc-fund-unit',
+        amount: annualAmt,
+        description: `${config.due_type} Dues`,
+        category: categoryMap[config.due_type] || 'DUES'
+      };
+    });
+
+    const referenceId = `year-assessment-${year}-${Date.now()}`;
+    const postingYear = new Date().getFullYear();
+    const today = new Date().toISOString();
+    const entryDate = `${year}-01-01`;
+
+    await db.run('BEGIN TRANSACTION');
+    try {
+      const stmt = `
+        INSERT OR REPLACE INTO ledger_entry (
+          id, entry_date, effective_date, description,
+          debit_account_id, credit_account_id, amount, member_id,
+          reference_type, reference_id, created_at, applied_financial_year,
+          posting_year, posting_type, category, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      let idx = 0;
+      for (const alloc of allocations) {
+        const exists = await db.get(
+          'SELECT 1 as has FROM ledger_entry WHERE member_id = ? AND applied_financial_year = ? AND posting_type = ? AND credit_account_id = ?',
+          [memberId, year, 'CURRENT_YEAR_CHARGE', alloc.account]
+        );
+        if (exists && exists.has) {
+          continue;
+        }
+
+        const id = `l-year-${year}-${memberId}-split-${idx}`;
+        const label = alloc.description.replace(' Dues', ' Due');
+        const description = `${year} ${label} Assessment`;
+
+        await db.run(stmt, [
+          id,
+          entryDate,
+          entryDate,
+          description,
+          'acc-member-receivable',
+          alloc.account,
+          alloc.amount,
+          memberId,
+          'AUTO_DEBIT_SINGLE',
+          referenceId,
+          today,
+          year,
+          postingYear,
+          'CURRENT_YEAR_CHARGE',
+          alloc.category,
+          'POSTED'
+        ]);
+        idx += 1;
+      }
+
+      await db.run('COMMIT');
+      res.json({ success: true, count: allocations.length });
+    } catch (e) {
+      await db.run('ROLLBACK');
+      throw e;
+    }
+  } catch (err) {
+    console.error('Single-member assessment error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Generic CRUD endpoints
 const tables = ['member', 'payment', 'ledger_entry', 'expense', 'dues_config', 'audit_log'];
 

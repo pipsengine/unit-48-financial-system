@@ -75,20 +75,19 @@ const BalanceSheet: React.FC = () => {
         openingSurplus: getFundBalance('acc-fund-opening-surplus')
     };
 
-    const totalFundRevenue = Object.values(funds).reduce((a, b) => a + b, 0);
+    const restrictedFundsTotal =
+      funds.national +
+      funds.unit +
+      funds.welfare +
+      funds.development +
+      funds.projectSupport +
+      funds.commandRefreshment +
+      funds.donation;
 
-    // Total Expenses (Paid + Unpaid/Accrued)
-    // In accrual, we deduct all incurred expenses
-    const totalIncurredExpenses = expenses
-        .filter(e => e.status === ExpenseStatus.PAID || e.status === ExpenseStatus.APPROVED)
-        .reduce((sum, e) => sum + e.amount, 0);
+    const netAssets = totalAssets - totalLiabilities;
+    const accumulatedSurplus = netAssets - restrictedFundsTotal;
 
-    // Accumulated Surplus = Opening + (Unallocated Income) - Expenses
-    // Since Income is held in Funds, Surplus represents the consumption of resources (Expenses)
-    // and any Unallocated Income (if any).
-    const accumulatedSurplus = funds.openingSurplus - totalIncurredExpenses;
-
-    const totalEquity = totalFundRevenue + accumulatedSurplus - funds.openingSurplus; // Avoid double counting openingSurplus if it's in totalFundRevenue
+    const totalEquity = restrictedFundsTotal + accumulatedSurplus;
 
     return {
       assets: {

@@ -43,7 +43,7 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
     setIsModalOpen(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMember) return;
 
@@ -71,14 +71,22 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
       return;
     }
 
-    const updatedMember = editingMember.id 
-      ? (editingMember as Member) 
-      : { ...(editingMember as Omit<Member, 'id'>), id: `m-${Date.now()}` };
+    const isNew = !editingMember.id;
+    const updatedMember = isNew
+      ? { ...(editingMember as Omit<Member, 'id'>), id: `m-${Date.now()}` }
+      : (editingMember as Member);
     
-    StorageService.updateMember(updatedMember);
-    // setMembers(StorageService.getMembers());
-    refreshDB();
-    setIsModalOpen(false);
+    try {
+      await StorageService.updateMember(updatedMember as Member);
+      if (isNew) {
+        await StorageService.assessMemberForCurrentYear((updatedMember as Member).id);
+      }
+      refreshDB();
+      setIsModalOpen(false);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to save member or apply dues. Please try again.');
+    }
   };
 
   const handleSaveBalance = (e: React.FormEvent) => {

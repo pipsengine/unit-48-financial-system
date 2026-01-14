@@ -594,6 +594,31 @@ export const StorageService = {
     }
   },
 
+  assessMemberForCurrentYear: async (memberId: string, year?: number) => {
+    const targetYear = year || new Date().getFullYear();
+    try {
+        const response = await fetch(`${API_URL}/member/${memberId}/assess-current-year`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('u48_token')}`
+            },
+            body: JSON.stringify({ year: targetYear })
+        });
+
+        if (!response.ok) {
+            const err = await response.json().catch(() => null);
+            throw new Error((err && err.error) || 'Member assessment failed');
+        }
+
+        await StorageService.sync();
+        StorageService.logAudit(memberId, `POST_MEMBER_ASSESSMENT_${targetYear}`, 'MEMBER', memberId);
+    } catch (e) {
+        console.error("assessMemberForCurrentYear failed:", e);
+        throw e;
+    }
+  },
+
   logAudit: async (userId: string, action: string, entityType: string, entityId: string) => {
     try {
         const user = StorageService.getMembers().find(m => m.id === userId);
