@@ -6,6 +6,7 @@ import {
 import { StorageService } from '../services/storageService';
 import { getFinancialHealthAnalysis } from '../services/geminiService';
 import { LedgerEntry, DueType, BillingFrequency, DueConfig, Payment, PaymentStatus, LedgerStatus, AuditLog, Member, PostingType } from '../types';
+import jsPDF from 'jspdf';
 
 const Reports: React.FC = () => {
   const [analysis, setAnalysis] = useState<string>('Analyzing financial vectors...');
@@ -113,7 +114,7 @@ const Reports: React.FC = () => {
     fetchAnalysis();
   }, [financialMetrics, collectionEfficiency, members.length, pendingExpenses]);
 
-  const handlePreview = (title: string) => {
+  const buildReportData = (title: string) => {
     let reportData: any = {
       timestamp: new Date().toLocaleString(),
       summary: `Aggregated data for ${title} based on current FY ${currentYear} ledger states.`,
@@ -513,6 +514,11 @@ const Reports: React.FC = () => {
         ];
       }
     }
+    return reportData;
+  };
+
+  const handlePreview = (title: string) => {
+    const reportData = buildReportData(title);
 
     setPreviewReport({
       title,
@@ -522,10 +528,105 @@ const Reports: React.FC = () => {
 
   const handleExport = (title: string) => {
     setIsGenerating(title);
-    setTimeout(() => {
+    try {
+      const data = buildReportData(title);
+      const doc = new jsPDF();
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 14;
+      let y = margin;
+
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text(title, margin, y);
+      y += 8;
+
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Generated At: ${data.timestamp}`, margin, y);
+      y += 8;
+
+      if (Array.isArray(data.kpis) && data.kpis.length > 0) {
+        doc.setFont('helvetica', 'bold');
+        doc.text('Key Metrics', margin, y);
+        y += 6;
+        doc.setFont('helvetica', 'normal');
+        data.kpis.forEach((kpi: any) => {
+          if (y > doc.internal.pageSize.getHeight() - margin) {
+            doc.addPage();
+            y = margin;
+          }
+          const label = `${kpi.label}:`;
+          const value = String(kpi.value ?? '');
+          doc.text(label, margin, y);
+          const labelWidth = doc.getTextWidth(label);
+          doc.text(value, margin + labelWidth + 2, y);
+          y += 5;
+        });
+        y += 4;
+      }
+
+      if (Array.isArray(data.headers) && Array.isArray(data.rows)) {
+        doc.setFont('helvetica', 'bold');
+        doc.text('Details', margin, y);
+        y += 6;
+
+        const columnCount = data.headers.length;
+        const usableWidth = pageWidth - margin * 2;
+        const colWidth = usableWidth / Math.max(columnCount, 1);
+
+        const drawRow = (cells: string[], isHeader: boolean) => {
+          if (y > doc.internal.pageSize.getHeight() - margin) {
+            doc.addPage();
+            y = margin;
+          }
+          doc.setFont('helvetica', isHeader ? 'bold' : 'normal');
+          doc.setFontSize(isHeader ? 8 : 7);
+          cells.forEach((cell, index) => {
+            const x = margin + index * colWidth;
+            const text = String(cell ?? '');
+            doc.text(text, x + 1, y);
+          });
+          y += isHeader ? 5 : 4;
+        };
+
+        drawRow(data.headers, true);
+
+        data.rows.forEach((row: any[]) => {
+          const cells = row.map(c => (typeof c === 'string' || typeof c === 'number') ? String(c) : '');
+          drawRow(cells, false);
+        });
+        y += 4;
+      }
+
+      if (data.summary) {
+        if (y > doc.internal.pageSize.getHeight() - margin) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text('Summary', margin, y);
+        y += 5;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        const summary = String(data.summary);
+        const lines = doc.splitTextToSize(summary, pageWidth - margin * 2);
+        lines.forEach((line: string) => {
+          if (y > doc.internal.pageSize.getHeight() - margin) {
+            doc.addPage();
+            y = margin;
+          }
+          doc.text(line, margin, y);
+          y += 4;
+        });
+      }
+
+      const safeTitle = title.replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+      doc.save(`${safeTitle}.pdf`);
+    } finally {
       setIsGenerating(null);
-      alert(`Success: ${title} has been generated and dispatched to your local downloads folder.`);
-    }, 2000);
+    }
   };
 
   return (
