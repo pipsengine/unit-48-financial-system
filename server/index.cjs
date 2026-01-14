@@ -3,10 +3,82 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const db = require('./db.cjs');
-
 const crypto = require('crypto');
+const https = require('https');
 
 const app = express();
+
+const sendSms = (to, body) => {
+  let toNumber = to;
+  if (typeof toNumber === 'string') {
+    const trimmed = toNumber.trim();
+    if (trimmed.startsWith('+')) {
+      toNumber = trimmed;
+    } else if (trimmed.startsWith('0')) {
+      toNumber = `+234${trimmed.slice(1)}`;
+    } else {
+      toNumber = trimmed;
+    }
+  }
+
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const fromNumber = process.env.TWILIO_FROM_NUMBER;
+
+  if (!accountSid || !authToken || !fromNumber) {
+    console.log('---------------------------------------------------');
+    console.log(`[SMS SIMULATION] To: ${toNumber}`);
+    console.log(`[SMS SIMULATION] Body: ${body}`);
+    console.log('---------------------------------------------------');
+    return;
+  }
+
+  const payload = new URLSearchParams({
+    To: toNumber,
+    From: fromNumber,
+    Body: body
+  }).toString();
+
+  const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+
+  const options = {
+    hostname: 'api.twilio.com',
+    path: `/2010-04-01/Accounts/${accountSid}/Messages.json`,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Length': Buffer.byteLength(payload),
+      Authorization: `Basic ${auth}`
+    }
+  };
+
+  const req = https.request(options, (res) => {
+    let data = '';
+    res.on('data', (chunk) => {
+      data += chunk.toString();
+    });
+    res.on('end', () => {
+      if (res.statusCode >= 400) {
+        let parsed = null;
+        try {
+          parsed = JSON.parse(data);
+        } catch (e) {}
+        if (parsed && parsed.message) {
+          console.error('SMS provider error:', res.statusCode, parsed.message);
+        } else {
+          console.error('SMS provider error:', res.statusCode, data);
+        }
+      }
+    });
+  });
+
+  req.on('error', (err) => {
+    console.error('SMS send failed:', err.message);
+  });
+
+  req.write(payload);
+  req.end();
+};
 // Hard Delete Payment (and associated ledger entries)
 app.delete('/api/payment/:id', async (req, res) => {
   try {
@@ -132,10 +204,8 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       [code, member.id, expiresAt]
     );
 
-    console.log('---------------------------------------------------');
-    console.log(`[SMS SIMULATION] Password Reset Code for ${member.full_name} (${member.phone})`);
-    console.log(`[SMS SIMULATION] Code: ${code}`);
-    console.log('---------------------------------------------------');
+    const message = `Unit 48 reset code: ${code}. Valid for 15 minutes.`;
+    sendSms(member.phone, message);
 
     res.json({ success: true, message: 'Reset code sent to registered phone.' });
   } catch (err) {
