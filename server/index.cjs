@@ -115,34 +115,29 @@ app.post('/api/auth/heartbeat', async (req, res) => {
 app.post('/api/auth/forgot-password', async (req, res) => {
   try {
     const { identifier } = req.body;
-    // Check if identifier matches email or membershipId
     const member = await db.get(
-      'SELECT * FROM member WHERE email = ? OR membership_id = ?', 
+      'SELECT * FROM member WHERE phone = ? OR membership_id = ?', 
       [identifier, identifier]
     );
 
     if (!member) {
-      // For security, we might not want to reveal if user exists, but for internal app it's fine.
-      // Let's pretend success to avoid enumeration if we were strict, but here we can be helpful.
-      // Actually, sticking to standard practice: "If that account exists, we sent an email."
-      return res.json({ success: true, message: 'If an account exists, a reset link has been sent.' });
+      return res.json({ success: true, message: 'If an account exists, a reset code has been sent.' });
     }
 
-    const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = Date.now() + (15 * 60 * 1000); // 15 mins
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + (15 * 60 * 1000);
 
     await db.run(
       'INSERT INTO password_resets (token, user_id, expires_at) VALUES (?, ?, ?)',
-      [token, member.id, expiresAt]
+      [code, member.id, expiresAt]
     );
 
-    // SIMULATE EMAIL SENDING
     console.log('---------------------------------------------------');
-    console.log(`[EMAIL SIMULATION] Password Reset Requested for ${member.full_name}`);
-    console.log(`[EMAIL SIMULATION] Link: http://localhost:3000/?reset_token=${token}`);
+    console.log(`[SMS SIMULATION] Password Reset Code for ${member.full_name} (${member.phone})`);
+    console.log(`[SMS SIMULATION] Code: ${code}`);
     console.log('---------------------------------------------------');
 
-    res.json({ success: true, message: 'Reset link sent to server console.' });
+    res.json({ success: true, message: 'Reset code sent to registered phone.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

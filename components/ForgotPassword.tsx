@@ -9,9 +9,15 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBack }) => {
   const [identifier, setIdentifier] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [code, setCode] = useState('');
+  const [stage, setStage] = useState<'request' | 'verify'>('request');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     setLoading(true);
     
     try {
@@ -20,14 +26,10 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBack }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifier })
       });
-      // Always show success to avoid user enumeration, or show actual result if preferred.
-      // The backend returns success: true even if user not found (security best practice),
-      // but logs to console if found.
       setSubmitted(true);
+      setStage('verify');
     } catch (err) {
       console.error(err);
-      // Still show submitted to avoid confusion or reveal errors?
-      // Better to show error if network fail.
       alert("Failed to connect to server.");
     } finally {
       setLoading(false);
@@ -44,20 +46,20 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBack }) => {
             </svg>
           </div>
           <h2 className="text-3xl font-extrabold text-slate-900">Reset Password</h2>
-          <p className="text-slate-500 font-medium">We'll send a secure reset link to your registered email.</p>
+          <p className="text-slate-500 font-medium">We will send a one-time code to your registered phone.</p>
         </div>
 
-        {!submitted ? (
+        {stage === 'request' && (
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1">Member ID or Email Address</label>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Member ID or Phone Number</label>
               <input 
                 type="text" 
                 required
                 value={identifier}
                 onChange={e => setIdentifier(e.target.value)}
                 className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none"
-                placeholder="e.g. 02-14381 or john@example.com"
+                placeholder="e.g. 02-14381 or 08012345678"
               />
             </div>
 
@@ -74,7 +76,7 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBack }) => {
                   </svg>
                   Processing...
                 </>
-              ) : 'Send Reset Link'}
+              ) : 'Send Code'}
             </button>
 
             <button 
@@ -85,21 +87,124 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBack }) => {
               Back to Login
             </button>
           </form>
-        ) : (
+        )}
+
+        {stage === 'verify' && (
           <div className="space-y-6 text-center animate-in zoom-in duration-300">
-            <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl text-emerald-800 text-sm">
-              <p className="font-bold mb-1 italic">Check your inbox!</p>
-              If an account exists for <span className="font-mono font-bold text-emerald-900">{identifier}</span>, a secure reset link has been dispatched.
+            <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl text-emerald-800 text-sm text-left space-y-2">
+              <p className="font-bold">Verification code sent</p>
+              <p className="text-xs text-slate-600">
+                If an account exists for <span className="font-mono font-bold text-emerald-900">{identifier}</span>, a six-digit code has been sent to the registered phone number.
+              </p>
             </div>
-            <p className="text-xs text-slate-400 leading-relaxed px-4">
-              The link will expire in 15 minutes for security reasons (FR-AUTH-008). 
-              If you don't receive it, check your spam folder or contact the Unit Secretary.
-            </p>
-            <button 
-              onClick={onBack}
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 px-4 rounded-lg shadow-lg transform active:scale-[0.98] transition-all"
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-xs font-medium">
+                {error}
+              </div>
+            )}
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setError(null);
+                if (newPassword.length < 8) {
+                  setError('Password must be at least 8 characters long.');
+                  return;
+                }
+                const hasUpperCase = /[A-Z]/.test(newPassword);
+                const hasLowerCase = /[a-z]/.test(newPassword);
+                const hasNumber = /[0-9]/.test(newPassword);
+                const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(newPassword);
+                if (!hasUpperCase || !hasLowerCase || !hasNumber || !hasSpecialChar) {
+                  setError('Password must include upper, lower, number, and special character.');
+                  return;
+                }
+                if (newPassword !== confirmPassword) {
+                  setError('Passwords do not match.');
+                  return;
+                }
+                setLoading(true);
+                try {
+                  const res = await fetch('http://localhost:3005/api/auth/reset-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: code, newPassword })
+                  });
+                  const data = await res.json();
+                  if (res.ok) {
+                    alert('Password reset successful. Please login with your new password.');
+                    onBack();
+                  } else {
+                    setError(data.error || 'Failed to reset password.');
+                  }
+                } catch (err) {
+                  console.error(err);
+                  setError('Failed to connect to server. Please try again.');
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              className="space-y-4 text-left"
             >
-              Return to Login
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">Verification Code</label>
+                <input
+                  type="text"
+                  required
+                  value={code}
+                  onChange={e => setCode(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-mono tracking-widest text-center"
+                  placeholder="Enter 6-digit code"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">New Password</label>
+                <input
+                  type="password"
+                  required
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                  placeholder="Minimum 8 characters"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">Confirm New Password</label>
+                <input
+                  type="password"
+                  required
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                  placeholder="Re-enter password"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg shadow-lg transform active:scale-[0.98] transition-all"
+              >
+                {loading ? 'Resetting...' : 'Verify Code & Reset Password'}
+              </button>
+              <button
+                type="button"
+                onClick={onBack}
+                className="w-full text-sm font-semibold text-slate-500 hover:text-indigo-600 transition-colors mt-2"
+              >
+                Cancel and go back
+              </button>
+            </form>
+            <button 
+              onClick={() => {
+                setStage('request');
+                setSubmitted(false);
+                setCode('');
+                setNewPassword('');
+                setConfirmPassword('');
+                setError(null);
+              }}
+              className="w-full text-xs text-slate-400 hover:text-slate-600 font-semibold mt-2"
+            >
+              Start over
             </button>
           </div>
         )}

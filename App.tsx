@@ -27,16 +27,8 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
-  const [resetToken, setResetToken] = useState<string | null>(null);
   const [dbVersion, setDbVersion] = useState(0);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('reset_token');
-    if (token) {
-      setResetToken(token);
-    }
-  }, []);
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   useEffect(() => {
     const setup = async () => {
@@ -179,43 +171,6 @@ const App: React.FC = () => {
     );
   }
 
-  if (resetToken) {
-    return (
-      <ResetPassword 
-        token={resetToken}
-        onSuccess={(authData) => {
-          setResetToken(null);
-          
-          if (authData) {
-            // Auto-login
-            const { token, user } = authData;
-            const members = StorageService.getMembers();
-            // Merge with local member data to ensure methods/fields
-            const fullUser = members.find(m => m.id === user.id) || { ...user, balance: 0, arrearsBalance: 0 };
-            
-            setCurrentUser(fullUser);
-            setToken(token);
-            
-            localStorage.setItem('u48_session', JSON.stringify(fullUser));
-            localStorage.setItem('u48_token', token);
-            
-            setLogoutMessage(null);
-          } else {
-             handleLogout("Password reset successfully. Please login.");
-          }
-
-          // Explicitly clear query params
-          const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
-          window.history.replaceState({path: newUrl}, '', newUrl);
-        }}
-        onCancel={() => {
-          setResetToken(null);
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }}
-      />
-    );
-  }
-
   if (!currentUser) {
     if (showForgotPassword) {
       return <ForgotPassword onBack={() => setShowForgotPassword(false)} />;
@@ -292,11 +247,25 @@ const App: React.FC = () => {
             <h1 className="text-xl font-bold text-slate-800 capitalize">{activeTab.replace('-', ' ')}</h1>
           </div>
           <div className="flex items-center gap-3">
-             <div className="hidden sm:block text-right">
-                <p className="text-sm font-medium text-slate-900 leading-none">{currentUser.fullName}</p>
-                <p className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full mt-1 uppercase tracking-tighter">{currentUser.role}</p>
-             </div>
-             <img src={`https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.fullName)}&background=random`} alt="Avatar" className="w-9 h-9 rounded-full ring-2 ring-indigo-100" />
+             <button
+               type="button"
+               onClick={() => setShowProfileModal(true)}
+               className="flex items-center gap-3 group"
+             >
+               <div className="hidden sm:block text-right">
+                  <p className="text-sm font-medium text-slate-900 leading-none group-hover:text-indigo-600 transition-colors">
+                    {currentUser.fullName}
+                  </p>
+                  <p className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full mt-1 uppercase tracking-tighter group-hover:bg-indigo-100 transition-colors">
+                    {currentUser.role}
+                  </p>
+               </div>
+               <img
+                 src={`https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.fullName)}&background=random`}
+                 alt="Avatar"
+                 className="w-9 h-9 rounded-full ring-2 ring-indigo-100 group-hover:ring-indigo-400 transition-shadow"
+               />
+             </button>
           </div>
         </header>
 
@@ -306,8 +275,142 @@ const App: React.FC = () => {
           </div>
         </main>
       </div>
+
+      {showProfileModal && currentUser && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="p-6 bg-indigo-600 text-white flex justify-between items-center shrink-0">
+              <div>
+                <h3 className="font-black uppercase tracking-widest text-sm">My Profile</h3>
+                <p className="text-[11px] font-medium text-indigo-100 mt-1">
+                  Update your contact and registry details
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowProfileModal(false)}
+                className="hover:opacity-75 transition-opacity"
+              >
+                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                 </svg>
+              </button>
+            </div>
+            <SelfProfileForm
+              user={currentUser}
+              onUpdated={async (updated) => {
+                try {
+                  await StorageService.updateMember(updated);
+                  const refreshed = StorageService.getMembers().find(m => m.id === updated.id) || updated;
+                  setCurrentUser(refreshed);
+                  localStorage.setItem('u48_session', JSON.stringify(refreshed));
+                  setShowProfileModal(false);
+                } catch (e) {
+                  alert('Failed to update profile. Please try again.');
+                  console.error(e);
+                }
+              }}
+              onCancel={() => setShowProfileModal(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default App;
+
+interface SelfProfileFormProps {
+  user: Member;
+  onUpdated: (member: Member) => void | Promise<void>;
+  onCancel: () => void;
+}
+
+const SelfProfileForm: React.FC<SelfProfileFormProps> = ({ user, onUpdated, onCancel }) => {
+  const [workingCopy, setWorkingCopy] = useState<Member>(user);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    try {
+      await onUpdated(workingCopy);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="p-8 space-y-6 overflow-y-auto">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="md:col-span-2">
+          <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Full Legal Name</label>
+          <input
+            value={workingCopy.fullName}
+            onChange={(e) => setWorkingCopy({ ...workingCopy, fullName: e.target.value })}
+            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-bold"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Member ID / PIN</label>
+          <input
+            value={workingCopy.membershipId}
+            onChange={(e) => setWorkingCopy({ ...workingCopy, membershipId: e.target.value })}
+            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Email Address</label>
+          <input
+            type="email"
+            value={workingCopy.email}
+            onChange={(e) => setWorkingCopy({ ...workingCopy, email: e.target.value })}
+            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-medium"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Phone</label>
+          <input
+            value={workingCopy.phone}
+            onChange={(e) => setWorkingCopy({ ...workingCopy, phone: e.target.value })}
+            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Home Address</label>
+          <textarea
+            value={workingCopy.address || ''}
+            onChange={(e) => setWorkingCopy({ ...workingCopy, address: e.target.value })}
+            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl h-20 resize-none"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Date of Birth</label>
+          <input
+            type="date"
+            value={workingCopy.dob || ''}
+            onChange={(e) => setWorkingCopy({ ...workingCopy, dob: e.target.value })}
+            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl"
+          />
+        </div>
+      </div>
+      <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest text-slate-600 bg-slate-100 hover:bg-slate-200"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={isSaving}
+          className="px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {isSaving ? 'Saving...' : 'Save Changes'}
+        </button>
+      </div>
+    </form>
+  );
+}

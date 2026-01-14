@@ -80,16 +80,28 @@ class DbService {
         CREATE TABLE IF NOT EXISTS member (
           id TEXT PRIMARY KEY,
           membership_id TEXT UNIQUE NOT NULL,
+          member_code TEXT UNIQUE,
           email TEXT UNIQUE NOT NULL,
           phone TEXT NOT NULL,
           full_name TEXT NOT NULL,
+          first_name TEXT,
+          last_name TEXT,
+          middle_name TEXT,
           date_of_joining TEXT NOT NULL,
+          date_joined TEXT,
           status TEXT NOT NULL,
+          membership_status TEXT,
           role TEXT NOT NULL,
           password TEXT,
           address TEXT,
+          state TEXT,
+          lga TEXT,
           dob TEXT,
           previous_balance REAL DEFAULT 0,
+          next_of_kin_name TEXT,
+          next_of_kin_phone TEXT,
+          profile_photo_url TEXT,
+          notes TEXT,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
       `);
@@ -151,7 +163,6 @@ class DbService {
         )
       `);
 
-      // Migrations for existing tables
       await this.ensureColumn("ledger_entry", "applied_financial_year", "INTEGER");
       await this.ensureColumn("ledger_entry", "posting_year", "INTEGER");
       await this.ensureColumn("ledger_entry", "posting_type", "TEXT");
@@ -164,6 +175,28 @@ class DbService {
       await this.ensureColumn("payment", "corrected_by", "TEXT");
       await this.ensureColumn("payment", "corrected_at", "TEXT");
       await this.ensureColumn("expense", "beneficiary", "TEXT");
+
+      await this.ensureColumn("member", "member_code", "TEXT");
+      await this.ensureColumn("member", "first_name", "TEXT");
+      await this.ensureColumn("member", "last_name", "TEXT");
+      await this.ensureColumn("member", "middle_name", "TEXT");
+      await this.ensureColumn("member", "state", "TEXT");
+      await this.ensureColumn("member", "lga", "TEXT");
+      await this.ensureColumn("member", "rank_or_position", "TEXT");
+      await this.ensureColumn("member", "date_joined", "TEXT");
+      await this.ensureColumn("member", "membership_status", "TEXT");
+      await this.ensureColumn("member", "next_of_kin_name", "TEXT");
+      await this.ensureColumn("member", "next_of_kin_phone", "TEXT");
+      await this.ensureColumn("member", "profile_photo_url", "TEXT");
+      await this.ensureColumn("member", "notes", "TEXT");
+
+      await this.ensureColumn("audit_log", "action_type", "TEXT");
+      await this.ensureColumn("audit_log", "changed_fields", "TEXT");
+      await this.ensureColumn("audit_log", "reason", "TEXT");
+
+      await this.run("UPDATE member SET member_code = membership_id WHERE (member_code IS NULL OR member_code = '') AND membership_id IS NOT NULL");
+      await this.run("UPDATE member SET membership_status = status WHERE (membership_status IS NULL OR membership_status = '') AND status IS NOT NULL");
+      await this.run("UPDATE member SET date_joined = date_of_joining WHERE (date_joined IS NULL OR date_joined = '') AND date_of_joining IS NOT NULL");
 
       await this.run(`
         CREATE TABLE IF NOT EXISTS expense (
@@ -198,7 +231,10 @@ class DbService {
           entity_type TEXT NOT NULL,
           entity_id TEXT,
           timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-          ip_address TEXT
+          ip_address TEXT,
+          action_type TEXT,
+          changed_fields TEXT,
+          reason TEXT
         )
       `);
 
