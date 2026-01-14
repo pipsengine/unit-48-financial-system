@@ -5,49 +5,51 @@ import {
 } from 'recharts';
 import { StorageService } from '../services/storageService';
 import { getFinancialHealthAnalysis } from '../services/geminiService';
-import { LedgerEntry, DueType, BillingFrequency, DueConfig } from '../types';
+import { LedgerEntry, DueType, BillingFrequency, DueConfig, Payment, PaymentStatus, LedgerStatus, AuditLog, Member, PostingType } from '../types';
 
 const Reports: React.FC = () => {
   const [analysis, setAnalysis] = useState<string>('Analyzing financial vectors...');
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
   const [previewReport, setPreviewReport] = useState<{title: string, data: any} | null>(null);
-  
+  const [selectedMemberId, setSelectedMemberId] = useState<string>('');
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+ 
   const members = StorageService.getMembers();
   const ledger = StorageService.getData<LedgerEntry>('u48_ledger');
   const expenses = StorageService.getData<any>('u48_expenses');
   const duesConfigs = StorageService.getData<DueConfig>('u48_dues');
+  const payments = StorageService.getPayments();
+  const auditLogs = StorageService.getData<AuditLog>('audit_log');
 
   const currentYear = new Date().getFullYear();
 
+  const postedLedger = useMemo(() => {
+    return ledger.filter(e => e.status === LedgerStatus.POSTED);
+  }, [ledger]);
+
   // Financial Calculations
   const financialMetrics = useMemo(() => {
-    // 1. Total Aging Credit (Total of all payments ever made - Unit Liquidity)
     const totalPreviousCredit = members.reduce((sum, m) => sum + (m.previousBalance && m.previousBalance > 0 ? m.previousBalance : 0), 0);
     
-    const totalAgingCredit = ledger
+    const totalAgingCredit = postedLedger
       .filter(e => e.referenceType === 'PAYMENT')
       .reduce((sum, e) => sum + e.amount, 0) + totalPreviousCredit;
 
-    // 2. Total Credit for the Year
-    const totalCreditYear = ledger
+    const totalCreditYear = postedLedger
       .filter(e => e.referenceType === 'PAYMENT' && new Date(e.entryDate).getFullYear() === currentYear)
       .reduce((sum, e) => sum + e.amount, 0);
 
-    // 3. Total Debit for the Year
-    const totalDebitYear = ledger
+    const totalDebitYear = postedLedger
       .filter(e => e.referenceType !== 'PAYMENT' && new Date(e.entryDate).getFullYear() === currentYear)
       .reduce((sum, e) => sum + e.amount, 0);
 
-    // 4. Total Outstanding Aging (Sum of all negative member balances)
     const totalOutstandingAging = members
       .filter(m => m.balance < 0)
       .reduce((sum, m) => sum + Math.abs(m.balance), 0);
 
-    // 5. Total Members
     const totalMembers = members.length;
     const activeMembers = members.filter(m => m.status === 'ACTIVE').length;
 
-    // 6. Category Totals (Derived from active member count * config rates)
     const getRate = (type: DueType) => {
       const cfg = duesConfigs.find(c => c.dueType === type);
       if (!cfg) return 0;
@@ -59,8 +61,7 @@ const Reports: React.FC = () => {
     const totalWelfare = activeMembers * getRate(DueType.WELFARE);
     const totalDevelopment = activeMembers * getRate(DueType.DEVELOPMENT);
 
-    // 7. Ad-hoc Categories (Checking ledger descriptions for specific keywords)
-    const getAdHocTotal = (keyword: string) => ledger
+    const getAdHocTotal = (keyword: string) => postedLedger
       .filter(e => e.description.toLowerCase().includes(keyword.toLowerCase()) && new Date(e.entryDate).getFullYear() === currentYear)
       .reduce((sum, e) => sum + e.amount, 0);
 
@@ -82,19 +83,19 @@ const Reports: React.FC = () => {
       totalDonations,
       totalCommandRefreshment
     };
-  }, [ledger, members, currentYear, duesConfigs]);
+  }, [postedLedger, members, currentYear, duesConfigs]);
 
   const pendingExpenses = expenses.filter((e: any) => e.status === 'UNDER_REVIEW').length;
   
   const collectionEfficiency = useMemo(() => {
     const activeMembers = members.filter(m => m.status === 'ACTIVE');
     const totalExpected = activeMembers.length * 21600;
-    const totalPayments = ledger
+    const totalPayments = postedLedger
       .filter(e => e.referenceType === 'PAYMENT' && new Date(e.entryDate).getFullYear() === currentYear)
       .reduce((sum, e) => sum + e.amount, 0);
     if (totalExpected === 0) return "0.0%";
     return ((totalPayments / totalExpected) * 100).toFixed(1) + "%";
-  }, [members, ledger, currentYear]);
+  }, [members, postedLedger, currentYear]);
 
   useEffect(() => {
     const fetchAnalysis = async () => {
@@ -120,7 +121,94 @@ const Reports: React.FC = () => {
     };
 
     switch (title) {
-      case "Income Statement":
+      case "Personal Ledger / Member Statement": {
+        const memberId = selectedMemberId || (members[0]?.id || '');
+        if (!memberId) {
+          reportData.summary = 'No members available for personal ledger.';
+          break;
+        }
+
+        const allEntries = ledger.filter(e => e.memberId === memberId && e.status === LedgerStatus.POSTED);
+        const openingEntries = allEntries.filter(e => e.appliedFinancialYear < selectedYear);
+        const currentEntries = allEntries.filter(e => e.appliedFinancialYear === selectedYear);
+
+        const computeNet = (entries: LedgerEntry[]) => {
+          return entries.reduce((sum, entry) => {
+            const isDebit = entry.debitAccountId && entry.debitAccountId.includes('member');
+            const isCredit = entry.creditAccountId && entry.creditAccountId.includes('member');
+            if (isDebit) return sum + entry.amount;
+            if (isCredit) return sum - entry.amount;
+            return sum;
+          }, 0);
+        };
+
+        const openingBalance = computeNet(openingEntries);
+
+        const sortedCurrent = currentEntries
+          .slice()
+          .sort((a, b) => {
+            const dateA = new Date(a.effectiveDate).getTime();
+            const dateB = new Date(b.effectiveDate).getTime();
+            if (dateA !== dateB) return dateA - dateB;
+            return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          });
+
+        let runningBalance = openingBalance;
+        let totalDebits = 0;
+        let totalCredits = 0;
+
+        const rows = sortedCurrent.map(entry => {
+          const isDebit = entry.debitAccountId && entry.debitAccountId.includes('member');
+          const isCredit = entry.creditAccountId && entry.creditAccountId.includes('member');
+
+          let delta = 0;
+          let debitAmount = '';
+          let creditAmount = '';
+
+          if (isDebit) {
+            delta = entry.amount;
+            debitAmount = `₦${entry.amount.toLocaleString()}`;
+            totalDebits += entry.amount;
+          } else if (isCredit) {
+            delta = -entry.amount;
+            creditAmount = `₦${entry.amount.toLocaleString()}`;
+            totalCredits += entry.amount;
+          }
+
+          runningBalance += delta;
+
+          return [
+            entry.effectiveDate,
+            entry.category || '',
+            entry.postingType || '',
+            debitAmount || '-',
+            creditAmount || '-',
+            `₦${runningBalance.toLocaleString()}`,
+            entry.description
+          ];
+        });
+
+        const closingBalance = runningBalance;
+        const member = members.find((m: Member) => m.id === memberId);
+        const memberLabel = member ? `${member.fullName} (${member.membershipId})` : memberId;
+
+        reportData.kpis = [
+          { label: 'Member', value: memberLabel },
+          { label: 'Financial Year', value: selectedYear.toString() },
+          { label: 'Opening Balance (B/F)', value: `₦${openingBalance.toLocaleString()}` },
+          { label: 'Closing Balance (C/F)', value: `₦${closingBalance.toLocaleString()}` },
+          { label: 'Total Debits (Charges)', value: `₦${totalDebits.toLocaleString()}` },
+          { label: 'Total Credits (Payments)', value: `₦${totalCredits.toLocaleString()}` }
+        ];
+
+        reportData.summary = `Personal ledger for ${memberLabel} in financial year ${selectedYear}. Closing balance is ₦${closingBalance.toLocaleString()} based on posted charges and payments only.`;
+        reportData.headers = ['Date', 'Category', 'Type', 'Debit', 'Credit', 'Running Balance', 'Description'];
+        reportData.rows = rows;
+        break;
+      }
+
+      case "Income & Expenditure Statement":
+      case "Income Statement": {
         const netIncome = financialMetrics.totalCreditYear - financialMetrics.totalDebitYear;
         reportData.kpis = [
           { label: 'Total Revenue', value: `₦${financialMetrics.totalCreditYear.toLocaleString()}` },
@@ -130,13 +218,11 @@ const Reports: React.FC = () => {
         ];
         reportData.summary = `The unit generated ₦${financialMetrics.totalCreditYear.toLocaleString()} in revenue against ₦${financialMetrics.totalDebitYear.toLocaleString()} in expenses, resulting in a net ${netIncome >= 0 ? 'surplus' : 'deficit'} of ₦${Math.abs(netIncome).toLocaleString()}.`;
         break;
+      }
 
-      case "Balance Sheet":
-        // Assets = Cash (Liquidity) + Receivables (Arrears)
+      case "Balance Sheet": {
         const totalAssets = financialMetrics.totalAgingCredit + financialMetrics.totalOutstandingAging;
-        // Liabilities = Prepaid balances (Members with positive balance)
         const totalLiabilities = members.filter(m => m.balance > 0).reduce((sum, m) => sum + m.balance, 0);
-        // Equity = Assets - Liabilities
         const equity = totalAssets - totalLiabilities;
         
         reportData.kpis = [
@@ -147,22 +233,43 @@ const Reports: React.FC = () => {
         ];
         reportData.summary = `The unit possesses total assets of ₦${totalAssets.toLocaleString()} (including receivables), with current liabilities of ₦${totalLiabilities.toLocaleString()}.`;
         break;
+      }
 
-      case "Collection Breakout":
+      case "Collections Report":
+      case "Collection Breakout": {
+        const nonReversedPayments = payments.filter((p: Payment) => p.status !== PaymentStatus.REVERSED);
+        const totalCollections = nonReversedPayments.reduce((sum, p) => sum + p.amount, 0);
         reportData.kpis = [
           { label: 'National Dues', value: `₦${financialMetrics.totalNational.toLocaleString()}` },
           { label: 'Unit Dues', value: `₦${financialMetrics.totalUnit.toLocaleString()}` },
           { label: 'Welfare', value: `₦${financialMetrics.totalWelfare.toLocaleString()}` },
-          { label: 'Development', value: `₦${financialMetrics.totalDevelopment.toLocaleString()}` }
+          { label: 'Development', value: `₦${financialMetrics.totalDevelopment.toLocaleString()}` },
+          { label: 'Total Collections', value: `₦${totalCollections.toLocaleString()}` }
         ];
-        reportData.summary = `Breakdown of expected collections based on active membership: National (₦${financialMetrics.totalNational.toLocaleString()}), Unit (₦${financialMetrics.totalUnit.toLocaleString()}), and others.`;
+        reportData.summary = `Collections register for FY ${currentYear}, including dues and levies, grouped by payment method and category.`;
+        reportData.headers = ['Date', 'Member', 'Category', 'Amount', 'Method', 'Status', 'Receipt No'];
+        reportData.rows = nonReversedPayments
+          .slice()
+          .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime())
+          .slice(0, 50)
+          .map(p => [
+            p.paymentDate,
+            p.memberName,
+            p.paymentType || 'GENERAL',
+            `₦${p.amount.toLocaleString()}`,
+            p.paymentMethod,
+            p.status,
+            p.referenceNumber
+          ]);
         break;
+      }
 
-      case "Arrears Aging":
+      case "Arrears / Outstanding Report":
+      case "Arrears Aging": {
         const debtors = members
-          .map(m => ({ ...m, totalDebt: (m.balance + (m.previousBalance || 0)) }))
+          .map(m => ({ ...m, totalDebt: (m.balance + (m.arrearsBalance || 0) + (m.previousBalance || 0)) }))
           .filter(m => m.totalDebt < 0)
-          .sort((a, b) => a.totalDebt - b.totalDebt); // Ascending (most negative first)
+          .sort((a, b) => a.totalDebt - b.totalDebt);
         
         const topDebtors = debtors.slice(0, 5);
         const totalArrears = debtors.reduce((sum, m) => sum + Math.abs(m.totalDebt), 0);
@@ -177,9 +284,160 @@ const Reports: React.FC = () => {
         reportData.headers = ['Member Name', 'Service No', 'Outstanding Balance'];
         reportData.rows = topDebtors.map(d => [d.fullName, d.membershipId, `₦${Math.abs(d.totalDebt).toLocaleString()}`]);
         break;
+      }
 
-      case "Budget Variance":
-        // Estimated Budget = Sum of all expected dues
+      case "Fund Balance Report": {
+        const fundAccounts = [
+          { key: 'acc-fund-national', label: 'National Due Fund' },
+          { key: 'acc-fund-unit', label: 'Unit Due Fund' },
+          { key: 'acc-fund-welfare', label: 'Welfare Fund' },
+          { key: 'acc-fund-development', label: 'Development Levy Fund' },
+          { key: 'acc-fund-project', label: 'Project Support Fund' },
+          { key: 'acc-fund-command', label: 'Command Refreshment Fund' },
+          { key: 'acc-fund-donation', label: 'Donation Fund' }
+        ];
+        const fundRows = fundAccounts.map(f => {
+          const inflows = postedLedger
+            .filter(e => e.creditAccountId === f.key)
+            .reduce((sum, e) => sum + e.amount, 0);
+          const outflows = postedLedger
+            .filter(e => e.debitAccountId === f.key)
+            .reduce((sum, e) => sum + e.amount, 0);
+          const closing = inflows - outflows;
+          return {
+            label: f.label,
+            inflows,
+            outflows,
+            closing
+          };
+        });
+        const totalClosingFunds = fundRows.reduce((sum, r) => sum + r.closing, 0);
+        reportData.kpis = [
+          { label: 'Total Fund Balances', value: `₦${totalClosingFunds.toLocaleString()}` },
+          { label: 'Tracked Funds', value: fundRows.length.toString() }
+        ];
+        reportData.summary = `Fund balances computed from posted ledger entries by account, showing inflows, outflows, and closing position for each designated fund bucket.`;
+        reportData.headers = ['Fund', 'Opening Balance (Approx)', 'Total Inflows', 'Total Outflows', 'Closing Balance'];
+        reportData.rows = fundRows.map(r => [
+          r.label,
+          '₦0',
+          `₦${r.inflows.toLocaleString()}`,
+          `₦${r.outflows.toLocaleString()}`,
+          `₦${r.closing.toLocaleString()}`
+        ]);
+        break;
+      }
+
+      case "Trial Balance": {
+        const yearEntries = postedLedger.filter(
+          e => e.appliedFinancialYear === selectedYear
+        );
+        const accountMap: Record<string, { debit: number; credit: number }> = {};
+        yearEntries.forEach(e => {
+          if (!accountMap[e.debitAccountId]) accountMap[e.debitAccountId] = { debit: 0, credit: 0 };
+          if (!accountMap[e.creditAccountId]) accountMap[e.creditAccountId] = { debit: 0, credit: 0 };
+          accountMap[e.debitAccountId].debit += e.amount;
+          accountMap[e.creditAccountId].credit += e.amount;
+        });
+        const accountRows = Object.entries(accountMap).map(([account, totals]) => ({
+          account,
+          debit: totals.debit,
+          credit: totals.credit
+        }));
+        const totalDebit = accountRows.reduce((sum, r) => sum + r.debit, 0);
+        const totalCredit = accountRows.reduce((sum, r) => sum + r.credit, 0);
+        reportData.kpis = [
+          { label: 'Financial Year', value: selectedYear.toString() },
+          { label: 'Total Debits', value: `₦${totalDebit.toLocaleString()}` },
+          { label: 'Total Credits', value: `₦${totalCredit.toLocaleString()}` },
+          { label: 'Balanced', value: totalDebit === totalCredit ? 'YES' : 'NO' }
+        ];
+        reportData.summary = `Trial balance for financial year ${selectedYear} across all ledger accounts. Debits and credits ${totalDebit === totalCredit ? 'match' : 'do not match'} for the selected year.`;
+        reportData.headers = ['Account', 'Debit Total', 'Credit Total'];
+        reportData.rows = accountRows
+          .sort((a, b) => a.account.localeCompare(b.account))
+          .map(r => [
+            r.account,
+            `₦${r.debit.toLocaleString()}`,
+            `₦${r.credit.toLocaleString()}`
+          ]);
+        break;
+      }
+
+      case "General Ledger": {
+        reportData.kpis = [
+          { label: 'Posted Entries', value: postedLedger.length },
+          { label: 'Current FY Entries', value: postedLedger.filter(e => e.appliedFinancialYear === currentYear).length }
+        ];
+        reportData.summary = `Chronological listing of posted ledger entries across all accounts, grouped by applied financial year and category. Preview shows the latest activity.`;
+        reportData.headers = ['Date', 'Applied Year', 'Posting Year', 'Member', 'Category', 'Type', 'Debit Account', 'Credit Account', 'Amount'];
+        reportData.rows = postedLedger
+          .slice()
+          .sort((a, b) => new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime())
+          .slice(0, 50)
+          .map(e => {
+            const member = members.find((m: Member) => m.id === e.memberId);
+            return [
+              e.entryDate,
+              e.appliedFinancialYear,
+              e.postingYear,
+              member ? member.fullName : '',
+              e.category || '',
+              e.postingType || '',
+              e.debitAccountId,
+              e.creditAccountId,
+              `₦${e.amount.toLocaleString()}`
+            ];
+          });
+        break;
+      }
+
+      case "Payment Register": {
+        const paymentRows = payments
+          .filter((p: Payment) => p.status !== PaymentStatus.REVERSED)
+          .slice()
+          .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
+        const totalRegisterAmount = paymentRows.reduce((sum, p) => sum + p.amount, 0);
+        reportData.kpis = [
+          { label: 'Receipts Count', value: paymentRows.length },
+          { label: 'Total Amount', value: `₦${totalRegisterAmount.toLocaleString()}` }
+        ];
+        reportData.summary = `Chronological register of all verified and pending receipts, excluding reversed items, for operational reconciliation.`;
+        reportData.headers = ['Date', 'Receipt No', 'Member', 'Category', 'Amount', 'Method', 'Status'];
+        reportData.rows = paymentRows.slice(0, 100).map(p => [
+          p.paymentDate,
+          p.referenceNumber,
+          p.memberName,
+          p.paymentType || 'GENERAL',
+          `₦${p.amount.toLocaleString()}`,
+          p.paymentMethod,
+          p.status
+        ]);
+        break;
+      }
+
+      case "Audit Trail": {
+        const sortedAudit = auditLogs
+          .slice()
+          .sort((a: AuditLog, b: AuditLog) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        reportData.kpis = [
+          { label: 'Total Events', value: sortedAudit.length },
+          { label: 'Unique Users', value: new Set(sortedAudit.map(a => a.userId)).size.toString() }
+        ];
+        reportData.summary = `Immutable audit history of key system actions including reversals, reclassifications, and administrative changes.`;
+        reportData.headers = ['Timestamp', 'User', 'Action', 'Entity Type', 'Entity Id', 'IP Address'];
+        reportData.rows = sortedAudit.slice(0, 100).map(a => [
+          a.timestamp,
+          a.userName,
+          a.action,
+          a.entityType,
+          a.entityId,
+          a.ipAddress
+        ]);
+        break;
+      }
+
+      case "Budget Variance": {
         const expectedRevenue = financialMetrics.totalNational + financialMetrics.totalUnit + financialMetrics.totalWelfare + financialMetrics.totalDevelopment;
         const actualRevenue = financialMetrics.totalCreditYear;
         const variance = actualRevenue - expectedRevenue;
@@ -192,13 +450,15 @@ const Reports: React.FC = () => {
         ];
         reportData.summary = `Actual revenue is ${variance >= 0 ? 'above' : 'below'} projections by ₦${Math.abs(variance).toLocaleString()} (${((actualRevenue / expectedRevenue) * 100).toFixed(1)}% of target).`;
         break;
+      }
 
-      default:
+      default: {
         reportData.kpis = [
-          { label: 'Total Entries', value: ledger.length },
+          { label: 'Total Entries', value: postedLedger.length },
           { label: 'Yearly Credit', value: `₦${financialMetrics.totalCreditYear.toLocaleString()}` },
           { label: 'Yearly Debit', value: `₦${financialMetrics.totalDebitYear.toLocaleString()}` }
         ];
+      }
     }
 
     setPreviewReport({
@@ -451,53 +711,97 @@ const Reports: React.FC = () => {
             <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Official Unit Reports</h2>
             <p className="text-slate-500 font-medium">Verified statements for unit management and auditing.</p>
           </div>
-          <select className="bg-white border border-slate-200 px-4 py-2 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
-             <option>FY {currentYear} Registry</option>
-             <option>FY {currentYear - 1} Archive</option>
-          </select>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <select 
+              className="bg-white border border-slate-200 px-4 py-2 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+            >
+              <option value={currentYear}>FY {currentYear}</option>
+              <option value={currentYear - 1}>FY {currentYear - 1}</option>
+            </select>
+            <select
+              className="bg-white border border-slate-200 px-4 py-2 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+              value={selectedMemberId}
+              onChange={(e) => setSelectedMemberId(e.target.value)}
+            >
+              <option value="">Select Member</option>
+              {members.map((m: Member) => (
+                <option key={m.id} value={m.id}>{m.fullName} ({m.membershipId})</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <ReportCard 
-            title="Income Statement" 
-            onPreview={() => handlePreview("Income Statement")}
-            onExport={() => handleExport("Income Statement")}
-            desc="Summary of unit revenues from dues versus hospitality and logistics costs." 
-            icon={<svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+            title="Personal Ledger / Member Statement" 
+            onPreview={() => handlePreview("Personal Ledger / Member Statement")}
+            onExport={() => handleExport("Personal Ledger / Member Statement")}
+            desc="Per-member statement of charges, payments, arrears and advances for a financial year." 
+            icon={<svg className="w-8 h-8 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5h14M5 9h14M9 13h6m-6 4h3M5 5v14h14V5" /></svg>}
+          />
+          <ReportCard 
+            title="Arrears / Outstanding Report" 
+            onPreview={() => handlePreview("Arrears / Outstanding Report")}
+            onExport={() => handleExport("Arrears / Outstanding Report")}
+            desc="Who owes what, by member and category, including opening due and closing balance." 
+            icon={<svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+          />
+          <ReportCard 
+            title="Collections Report" 
+            onPreview={() => handlePreview("Collections Report")}
+            onExport={() => handleExport("Collections Report")}
+            desc="All payments received, grouped by date, member, category and method." 
+            icon={<svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 7h16M4 11h16M4 15h10M4 19h6" /></svg>}
+          />
+          <ReportCard 
+            title="General Ledger" 
+            onPreview={() => handlePreview("General Ledger")}
+            onExport={() => handleExport("General Ledger")}
+            desc="Chronological list of posted transactions with applied year, category and type." 
+            icon={<svg className="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4h16v4H4zM4 12h16v8H4z" /></svg>}
+          />
+          <ReportCard 
+            title="Fund Balance Report" 
+            onPreview={() => handlePreview("Fund Balance Report")}
+            onExport={() => handleExport("Fund Balance Report")}
+            desc="Opening, inflows, outflows and closing balances for each designated fund." 
+            icon={<svg className="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10l4-4 4 4m-4-4v14M13 10l4-4 4 4m-4-4v14" /></svg>}
           />
           <ReportCard 
             title="Balance Sheet" 
             onPreview={() => handlePreview("Balance Sheet")}
             onExport={() => handleExport("Balance Sheet")}
-            desc="Current snapshot of cash assets, member liabilities, and unit equity." 
+            desc="Statement of financial position: assets, liabilities, funds and accumulated surplus." 
             icon={<svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" /></svg>}
           />
           <ReportCard 
-            title="Collection Breakout" 
-            onPreview={() => handlePreview("Collection Breakout")}
-            onExport={() => handleExport("Collection Breakout")}
-            desc="Detailed performance tracking by National, Development, Unit, and Welfare categories." 
-            icon={<svg className="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
+            title="Income & Expenditure Statement" 
+            onPreview={() => handlePreview("Income & Expenditure Statement")}
+            onExport={() => handleExport("Income & Expenditure Statement")}
+            desc="Income by dues, levies, donations and expenses by welfare, projects and admin." 
+            icon={<svg className="w-8 h-8 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-6a2 2 0 00-2-2H5l4-4 4 4h-2a2 2 0 00-2 2v6m4 4h6m-3-3v6" /></svg>}
           />
           <ReportCard 
-            title="Arrears Aging" 
-            onPreview={() => handlePreview("Arrears Aging")}
-            onExport={() => handleExport("Arrears Aging")}
-            desc="List of personnel with outstanding balances, categorized by duration and risk." 
-            icon={<svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>}
+            title="Trial Balance" 
+            onPreview={() => handlePreview("Trial Balance")}
+            onExport={() => handleExport("Trial Balance")}
+            desc="Per-account debit and credit totals; must balance before final statements." 
+            icon={<svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 12h14M5 7h9M5 17h9" /></svg>}
           />
           <ReportCard 
-            title="Budget Variance" 
-            onPreview={() => handlePreview("Budget Variance")}
-            onExport={() => handleExport("Budget Variance")}
-            desc="Comparison of actual expenditures against the approved unit fiscal budget." 
-            icon={<svg className="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" /></svg>}
+            title="Payment Register" 
+            onPreview={() => handlePreview("Payment Register")}
+            onExport={() => handleExport("Payment Register")}
+            desc="Receipt-level register with member, category, amount, date, status and user." 
+            icon={<svg className="w-8 h-8 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 4h14v4H5zM5 12h14v8H5zM9 16h2m2 0h2" /></svg>}
           />
           <ReportCard 
-            title="Audit Ready Export" 
-            onPreview={() => handlePreview("Audit Ready Export")}
-            onExport={() => handleExport("Audit Ready Export")}
-            desc="Cryptographically signed ledger export for external audit and compliance." 
+            title="Audit Trail" 
+            onPreview={() => handlePreview("Audit Trail")}
+            onExport={() => handleExport("Audit Trail")}
+            desc="Chronological log of corrections, reversals and critical actions for auditors." 
             icon={<svg className="w-8 h-8 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
           />
         </div>

@@ -248,6 +248,87 @@ app.get('/api/sync', authenticateToken, async (req, res) => {
   }
 });
 
+app.get('/api/reports/personal-ledger', authenticateToken, async (req, res) => {
+  try {
+    const memberId = req.query.memberId;
+    const yearParam = req.query.year;
+    const category = req.query.category;
+    const type = req.query.type;
+    const status = req.query.status || 'POSTED';
+
+    if (!memberId) {
+      return res.status(400).json({ error: 'memberId is required' });
+    }
+
+    const year = yearParam ? parseInt(yearParam, 10) : new Date().getFullYear();
+
+    if (Number.isNaN(year)) {
+      return res.status(400).json({ error: 'Invalid year' });
+    }
+
+    let sql = 'SELECT * FROM ledger_entry WHERE member_id = ? AND applied_financial_year = ?';
+    const params = [memberId, year];
+
+    if (category) {
+      sql += ' AND category = ?';
+      params.push(category);
+    }
+
+    if (type) {
+      sql += ' AND posting_type = ?';
+      params.push(type);
+    }
+
+    sql += ' AND status = ? ORDER BY effective_date ASC, created_at ASC';
+    params.push(status);
+
+    const rows = await db.all(sql, params);
+
+    const toCamel = (o) => {
+      const newO = {};
+      for (const key in o) {
+        const newKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+        newO[newKey] = o[key];
+      }
+      return newO;
+    };
+
+    const entries = rows.map(toCamel);
+
+    const buckets = {};
+    const withBalances = entries.map((entry) => {
+      const appliedYear = entry.appliedFinancialYear;
+      const cat = entry.category || 'GENERAL';
+      const bucketKey = `${entry.memberId}-${appliedYear}-${cat}`;
+      const currentBalance = buckets[bucketKey] || 0;
+
+      let change = 0;
+      if (entry.debitAccountId && entry.debitAccountId.includes('member')) {
+        change = entry.amount;
+      } else if (entry.creditAccountId && entry.creditAccountId.includes('member')) {
+        change = -entry.amount;
+      }
+
+      const newBalance = currentBalance + change;
+      buckets[bucketKey] = newBalance;
+
+      return {
+        ...entry,
+        balance: newBalance,
+        displayYear: appliedYear
+      };
+    });
+
+    res.json({
+      memberId,
+      year,
+      entries: withBalances
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/batch/assessments', authenticateToken, async (req, res) => {
   try {
     const { year, amount, description, referenceId, allocations } = req.body;
