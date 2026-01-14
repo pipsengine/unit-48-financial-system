@@ -221,17 +221,70 @@ const Reports: React.FC = () => {
       }
 
       case "Balance Sheet": {
-        const totalAssets = financialMetrics.totalAgingCredit + financialMetrics.totalOutstandingAging;
-        const totalLiabilities = members.filter(m => m.balance > 0).reduce((sum, m) => sum + m.balance, 0);
-        const equity = totalAssets - totalLiabilities;
-        
+        const yearEntries = postedLedger.filter(
+          e => e.appliedFinancialYear === selectedYear
+        );
+
+        const accountMap: Record<string, { debit: number; credit: number }> = {};
+        yearEntries.forEach(e => {
+          if (!accountMap[e.debitAccountId]) {
+            accountMap[e.debitAccountId] = { debit: 0, credit: 0 };
+          }
+          if (!accountMap[e.creditAccountId]) {
+            accountMap[e.creditAccountId] = { debit: 0, credit: 0 };
+          }
+          accountMap[e.debitAccountId].debit += e.amount;
+          accountMap[e.creditAccountId].credit += e.amount;
+        });
+
+        const assetRows: { account: string; balance: number }[] = [];
+        const fundRows: { account: string; balance: number }[] = [];
+
+        Object.entries(accountMap).forEach(([account, totals]) => {
+          const debitBalance = totals.debit - totals.credit;
+          const creditBalance = totals.credit - totals.debit;
+
+          if (account === 'acc-bank' || account.startsWith('acc-member')) {
+            if (debitBalance !== 0) {
+              assetRows.push({ account, balance: debitBalance });
+            }
+          } else if (account.startsWith('acc-fund-')) {
+            if (creditBalance !== 0) {
+              fundRows.push({ account, balance: creditBalance });
+            }
+          }
+        });
+
+        const totalAssets = assetRows.reduce((sum, r) => sum + r.balance, 0);
+        const totalFunds = fundRows.reduce((sum, r) => sum + r.balance, 0);
+        const discrepancy = totalAssets - totalFunds;
+
         reportData.kpis = [
+          { label: 'Financial Year', value: selectedYear.toString() },
           { label: 'Total Assets', value: `₦${totalAssets.toLocaleString()}` },
-          { label: 'Total Liabilities', value: `₦${totalLiabilities.toLocaleString()}` },
-          { label: 'Unit Equity', value: `₦${equity.toLocaleString()}` },
-          { label: 'Liquidity Ratio', value: totalLiabilities > 0 ? (financialMetrics.totalAgingCredit / totalLiabilities).toFixed(2) : '∞' }
+          { label: 'Total Funds & Equity', value: `₦${totalFunds.toLocaleString()}` },
+          { label: 'Balanced', value: discrepancy === 0 ? 'YES' : 'NO' }
         ];
-        reportData.summary = `The unit possesses total assets of ₦${totalAssets.toLocaleString()} (including receivables), with current liabilities of ₦${totalLiabilities.toLocaleString()}.`;
+
+        reportData.summary = `Balance sheet for financial year ${selectedYear}. Assets of ₦${totalAssets.toLocaleString()} ${
+          discrepancy === 0
+            ? 'are fully matched by funds and equity.'
+            : `differ from funds and equity by ₦${Math.abs(discrepancy).toLocaleString()}.`
+        }`;
+
+        reportData.headers = ['Section', 'Account', 'Balance'];
+        reportData.rows = [
+          ...assetRows.map(r => [
+            'Assets',
+            r.account,
+            `₦${r.balance.toLocaleString()}`
+          ]),
+          ...fundRows.map(r => [
+            'Funds & Equity',
+            r.account,
+            `₦${r.balance.toLocaleString()}`
+          ])
+        ];
         break;
       }
 
@@ -491,7 +544,7 @@ const Reports: React.FC = () => {
       {/* Preview Modal */}
       {previewReport && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+          <div className="bg-white w-full max-w-2xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col">
             <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
               <div>
                 <h3 className="font-black uppercase tracking-widest text-sm">Report Preview</h3>
@@ -501,7 +554,7 @@ const Reports: React.FC = () => {
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            <div className="p-8 space-y-6">
+            <div className="p-8 space-y-6 overflow-y-auto">
               <div className="flex justify-between items-start border-b border-slate-100 pb-6">
                  <div>
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Generated At</p>
@@ -548,16 +601,24 @@ const Reports: React.FC = () => {
               <p className="text-sm text-slate-600 leading-relaxed italic border-l-4 border-indigo-500 pl-4 py-2 bg-indigo-50/30 rounded-r-xl">
                 {previewReport.data.summary}
               </p>
-              <button 
-                onClick={() => {
-                  const t = previewReport.title;
-                  setPreviewReport(null);
-                  handleExport(t);
-                }} 
-                className="w-full bg-indigo-600 text-white font-black py-4 rounded-2xl shadow-xl hover:bg-indigo-700 transition-all uppercase tracking-widest text-xs"
-              >
-                Proceed to Download Full PDF
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                <button
+                  onClick={() => setPreviewReport(null)}
+                  className="w-full sm:w-auto bg-slate-100 text-slate-700 font-black py-3 px-4 rounded-2xl border border-slate-200 hover:bg-slate-200 transition-all uppercase tracking-widest text-[10px]"
+                >
+                  Close
+                </button>
+                <button 
+                  onClick={() => {
+                    const t = previewReport.title;
+                    setPreviewReport(null);
+                    handleExport(t);
+                  }} 
+                  className="w-full sm:flex-1 bg-indigo-600 text-white font-black py-3 rounded-2xl shadow-xl hover:bg-indigo-700 transition-all uppercase tracking-widest text-[10px]"
+                >
+                  Proceed to Download Full PDF
+                </button>
+              </div>
             </div>
           </div>
         </div>
