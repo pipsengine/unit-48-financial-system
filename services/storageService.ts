@@ -16,7 +16,7 @@ import {
   LedgerStatus
 } from '../types';
 
-const API_URL = (import.meta as any)?.env?.VITE_API_URL || 'http://localhost:3005/api';
+const API_URL = (import.meta as any)?.env?.VITE_API_URL || 'http://localhost:3006/api';
 
 // Cache structure
 interface Cache {
@@ -206,6 +206,22 @@ export const StorageService = {
     }
   },
 
+  updateMemberBalance: async (memberId: string, amount: number) => {
+    try {
+      const res = await fetch(`${API_URL}/member/${memberId}/balance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount })
+      });
+      if (!res.ok) throw new Error('Failed to update member balance');
+      await StorageService.sync();
+      StorageService.logAudit(memberId, 'UPDATE_BALANCE', 'MEMBER', memberId);
+    } catch (e) {
+      console.error("updateMemberBalance failed:", e);
+      throw e;
+    }
+  },
+
   deleteMember: async (memberId: string) => {
     try {
         await fetch(`${API_URL}/member/${memberId}`, { method: 'DELETE' });
@@ -305,36 +321,68 @@ export const StorageService = {
   },
 
   postPaymentToLedger: async (payment: Payment) => {
-    const id = `l-pay-${Date.now()}`;
-    const fundEntryId = `l-fund-${Date.now()}`;
+    const id1 = `l-pay-${Date.now()}-1`;
+    const id2 = `l-pay-${Date.now()}-2`;
+    const fundEntryId1 = `l-fund-${Date.now()}-1`;
+    const fundEntryId2 = `l-fund-${Date.now()}-2`;
     const currentYear = new Date().getFullYear();
     const appliedYear = payment.appliedFinancialYear || new Date(payment.paymentDate).getFullYear();
     const isArrears = appliedYear < currentYear;
 
-    // 1. Receivable Settlement Entry
-    const settlementEntry: LedgerEntry = {
-        id,
+    // Map Payment Type to Category
+    const categoryMap: Record<string, string> = {
+      'National Due': 'NATIONAL_DUE',
+      'Unit Due': 'UNIT_DUE',
+      'Welfare Due': 'WELFARE_DUE',
+      'Development Levy': 'DEVELOPMENT_LEVY',
+      'Donation': 'DONATION',
+      'Project Support': 'PROJECT_SUPPORT',
+      'Command Refreshment': 'COMMAND_REFRESHMENT'
+    };
+    const category = categoryMap[payment.paymentType || ''] || 'DUES';
+
+    // 1. Cash Receipt (Dr Bank, Cr Receivable Clearing)
+    const receiptEntry: LedgerEntry = {
+        id: id1,
         entryDate: payment.paymentDate,
         effectiveDate: payment.paymentDate,
-        description: `Payment (${payment.paymentType || 'General'}): ${payment.referenceNumber}${payment.notes ? ` - ${payment.notes}` : ''}`,
+        description: `Payment Receipt (${payment.paymentType || 'General'}): ${payment.referenceNumber}${payment.notes ? ` - ${payment.notes}` : ''}`,
         debitAccountId: 'acc-bank',
-        creditAccountId: isArrears ? 'acc-member-arrears' : 'acc-member-receivable',
+        creditAccountId: 'acc-receivable-clearing',
         amount: payment.amount,
         memberId: payment.memberId,
-        referenceType: 'PAYMENT',
+        referenceType: 'PAYMENT_RECEIPT',
         referenceId: payment.id,
         createdAt: new Date().toISOString(),
         appliedFinancialYear: appliedYear,
         postingYear: currentYear,
         postingType: isArrears ? PostingType.ARREARS_SETTLEMENT : PostingType.PAYMENT,
-        category: 'DUES',
+        category: category,
         status: LedgerStatus.POSTED
     };
 
-    // 2. Fund Recognition Entry (Double Entry Requirement)
+    // 2. Settlement (Dr Receivable Clearing, Cr Member Receivable)
+    const settlementEntry: LedgerEntry = {
+        id: id2,
+        entryDate: payment.paymentDate,
+        effectiveDate: payment.paymentDate,
+        description: `Payment Settlement (${payment.paymentType || 'General'}): ${payment.referenceNumber}`,
+        debitAccountId: 'acc-receivable-clearing',
+        creditAccountId: isArrears ? 'acc-member-arrears' : 'acc-member-receivable',
+        amount: payment.amount,
+        memberId: payment.memberId,
+        referenceType: 'PAYMENT_SETTLEMENT',
+        referenceId: payment.id,
+        createdAt: new Date().toISOString(),
+        appliedFinancialYear: appliedYear,
+        postingYear: currentYear,
+        postingType: isArrears ? PostingType.ARREARS_SETTLEMENT : PostingType.PAYMENT,
+        category: category,
+        status: LedgerStatus.POSTED
+    };
+
+    // 3. Fund Recognition Entry (Double Entry Requirement)
     // ONLY for Ad-hoc payments (Donations, Projects) that were NOT assessed annually.
-    // Annual Dues (National, Unit, Welfare, Development) are recognized at Assessment time.
-    
     const adHocTypes = ['Donation', 'Project Support', 'Command Refreshment'];
     const isAdHoc = adHocTypes.includes(payment.paymentType || '');
 
@@ -347,16 +395,37 @@ export const StorageService = {
         };
         const fundAccount = fundMap[payment.paymentType || ''] || 'acc-fund-donation';
 
-        const fundEntry: LedgerEntry = {
-            id: fundEntryId,
+        // 3a. Receivable Recognition (Dr Member Rec, Cr Dues Clearing)
+        const fundEntry1: LedgerEntry = {
+            id: fundEntryId1,
             entryDate: payment.paymentDate,
             effectiveDate: payment.paymentDate,
-            description: `Fund Recognition (Ad-Hoc): ${payment.paymentType || 'General'} (${payment.referenceNumber})`,
-            debitAccountId: isArrears ? 'acc-member-arrears' : 'acc-member-receivable', // Acts as Clearing
+            description: `Fund Rec (Rec): ${payment.paymentType || 'General'} (${payment.referenceNumber})`,
+            debitAccountId: isArrears ? 'acc-member-arrears' : 'acc-member-receivable',
+            creditAccountId: 'acc-dues-clearing',
+            amount: payment.amount,
+            memberId: payment.memberId,
+            referenceType: 'PAYMENT_FUND_RECOGNITION_REC',
+            referenceId: payment.id,
+            createdAt: new Date().toISOString(),
+            appliedFinancialYear: appliedYear,
+            postingYear: currentYear,
+            postingType: PostingType.FUND_RECOGNITION,
+            category: payment.paymentType || 'DUES',
+            status: LedgerStatus.POSTED
+        };
+
+        // 3b. Revenue Recognition (Dr Dues Clearing, Cr Fund)
+        const fundEntry2: LedgerEntry = {
+            id: fundEntryId2,
+            entryDate: payment.paymentDate,
+            effectiveDate: payment.paymentDate,
+            description: `Fund Rec (Rev): ${payment.paymentType || 'General'} (${payment.referenceNumber})`,
+            debitAccountId: 'acc-dues-clearing',
             creditAccountId: fundAccount,
             amount: payment.amount,
             memberId: payment.memberId,
-            referenceType: 'PAYMENT_FUND_RECOGNITION',
+            referenceType: 'PAYMENT_FUND_RECOGNITION_REV',
             referenceId: payment.id,
             createdAt: new Date().toISOString(),
             appliedFinancialYear: appliedYear,
@@ -366,15 +435,26 @@ export const StorageService = {
             status: LedgerStatus.POSTED
         };
         
-        // Post Fund Recognition
         await fetch(`${API_URL}/ledger_entry`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(fundEntry)
+            body: JSON.stringify(fundEntry1)
+        });
+
+        await fetch(`${API_URL}/ledger_entry`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(fundEntry2)
         });
     }
     
-    // Post Settlement
+    // Post Settlement Entries
+    await fetch(`${API_URL}/ledger_entry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(receiptEntry)
+    });
+
     await fetch(`${API_URL}/ledger_entry`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -454,20 +534,42 @@ export const StorageService = {
   },
 
   postExpenseToLedger: async (expense: Expense) => {
-    const id = `l-exp-${Date.now()}`;
+    const id1 = `l-exp-${Date.now()}-1`;
+    const id2 = `l-exp-${Date.now()}-2`;
     const currentYear = new Date().getFullYear();
     const appliedYear = new Date(expense.incurredDate).getFullYear();
 
-    const entry: LedgerEntry = {
-        id,
+    // 1. Expense Recognition (Dr Expense, Cr Payable Clearing)
+    const entry1: LedgerEntry = {
+        id: id1,
         entryDate: expense.incurredDate,
         effectiveDate: expense.incurredDate,
-        description: `Expense: ${expense.title} (${expense.category})`,
+        description: `Expense Recognition: ${expense.title} (${expense.category})`,
         debitAccountId: `acc-expense-${expense.category.toLowerCase()}`,
+        creditAccountId: 'acc-payable-clearing',
+        amount: expense.amount,
+        // No member attached for expenses
+        referenceType: 'EXPENSE_RECOGNITION',
+        referenceId: expense.id,
+        createdAt: new Date().toISOString(),
+        appliedFinancialYear: appliedYear,
+        postingYear: currentYear,
+        postingType: PostingType.EXPENSE,
+        category: expense.category,
+        status: LedgerStatus.POSTED
+    };
+
+    // 2. Cash Disbursement (Dr Payable Clearing, Cr Bank)
+    const entry2: LedgerEntry = {
+        id: id2,
+        entryDate: expense.incurredDate,
+        effectiveDate: expense.incurredDate,
+        description: `Expense Payment: ${expense.title}`,
+        debitAccountId: 'acc-payable-clearing',
         creditAccountId: 'acc-bank',
         amount: expense.amount,
-        memberId: expense.submittedBy,
-        referenceType: 'EXPENSE',
+        // No member attached for expenses
+        referenceType: 'EXPENSE_PAYMENT',
         referenceId: expense.id,
         createdAt: new Date().toISOString(),
         appliedFinancialYear: appliedYear,
@@ -480,7 +582,13 @@ export const StorageService = {
     await fetch(`${API_URL}/ledger_entry`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(entry)
+        body: JSON.stringify(entry1)
+    });
+
+    await fetch(`${API_URL}/ledger_entry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entry2)
     });
   },
 

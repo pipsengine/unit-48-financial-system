@@ -3,13 +3,14 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "server": "node server/index.cjs",
-    "dev:all": "concurrently \"npm run server\" \"npm run dev\"",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
+"scripts": {
+  "dev": "vite",
+  "server": "node server/index.cjs",
+  "dev:all": "concurrently \"npm run server\" \"npm run dev\"",
+  "build": "vite build",
+  "preview": "vite preview",
+  "start": "npm run build && node server/index.cjs"
+},
   "dependencies": {
     "@google/genai": "^1.35.0",
     "body-parser": "^2.2.2",

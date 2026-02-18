@@ -25,6 +25,10 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
     appliedFinancialYear: new Date().getFullYear().toString()
   });
 
+  // Member Search State
+  const [memberSearchQuery, setMemberSearchQuery] = useState('');
+  const [isMemberDropdownOpen, setIsMemberDropdownOpen] = useState(false);
+
   // Correction State
   const [showCorrectionModal, setShowCorrectionModal] = useState(false);
   const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null);
@@ -107,10 +111,86 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
     }
   };
 
+  // Split Payment State
+  const [isSplitMode, setIsSplitMode] = useState(false);
+  const [splitAllocations, setSplitAllocations] = useState<{type: string; year: string; amount: string}[]>([
+    { type: 'National Due', year: new Date().getFullYear().toString(), amount: '' }
+  ]);
+
+  const addAllocation = () => {
+    setSplitAllocations([...splitAllocations, { type: 'National Due', year: new Date().getFullYear().toString(), amount: '' }]);
+  };
+
+  const removeAllocation = (index: number) => {
+    setSplitAllocations(splitAllocations.filter((_, i) => i !== index));
+  };
+
+  const updateAllocation = (index: number, field: keyof typeof splitAllocations[0], value: string) => {
+    const newAllocations = [...splitAllocations];
+    newAllocations[index] = { ...newAllocations[index], [field]: value };
+    setSplitAllocations(newAllocations);
+  };
+
+  const totalSplitAmount = splitAllocations.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+
   const handleRecordDirect = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPayment.memberId || !newPayment.amount || !newPayment.referenceNumber || !newPayment.appliedFinancialYear || !newPayment.paymentDate) {
-      alert("Please fill all compulsory fields, including Date.");
+    
+    if (!newPayment.memberId || !newPayment.referenceNumber || !newPayment.paymentDate) {
+        alert("Please fill all compulsory fields (Member, Reference, Date).");
+        return;
+    }
+
+    if (isSplitMode) {
+        if (splitAllocations.some(a => !a.amount || parseFloat(a.amount) <= 0)) {
+            alert("All split allocations must have a valid amount.");
+            return;
+        }
+
+        const confirmMsg = `Confirm Split Payment Posting:\n\nTotal Amount: ₦${totalSplitAmount.toLocaleString()}\nAllocations: ${splitAllocations.length}\n\nIs this correct?`;
+        if (!window.confirm(confirmMsg)) return;
+
+        const selectedMember = members.find(m => m.id === newPayment.memberId);
+        
+        // Create multiple payments sharing the same reference
+        splitAllocations.forEach((alloc, index) => {
+            const payment: Payment = {
+                id: `p-${Date.now()}-${index}`,
+                memberId: newPayment.memberId,
+                memberName: selectedMember?.fullName || 'Unknown',
+                amount: parseFloat(alloc.amount),
+                paymentDate: newPayment.paymentDate,
+                paymentMethod: newPayment.paymentMethod,
+                paymentType: alloc.type,
+                referenceNumber: newPayment.referenceNumber, // Same Ref
+                status: PaymentStatus.VERIFIED,
+                notes: `${newPayment.notes} (Split ${index + 1}/${splitAllocations.length})`,
+                createdAt: new Date().toISOString(),
+                appliedFinancialYear: parseInt(alloc.year)
+            };
+            StorageService.addPayment(payment, user.id);
+        });
+
+        refreshDB();
+        setShowSubmitModal(false);
+        setMemberSearchQuery('');
+        setNewPayment({
+            memberId: '',
+            amount: '',
+            paymentDate: new Date().toISOString().split('T')[0],
+            paymentMethod: 'BANK_TRANSFER',
+            paymentType: 'National Due',
+            referenceNumber: '',
+            notes: '',
+            appliedFinancialYear: new Date().getFullYear().toString()
+        });
+        setIsSplitMode(false);
+        setSplitAllocations([{ type: 'National Due', year: new Date().getFullYear().toString(), amount: '' }]);
+        return;
+    }
+
+    if (!newPayment.amount || !newPayment.appliedFinancialYear) {
+      alert("Please fill Amount and Financial Year.");
       return;
     }
 
@@ -137,6 +217,7 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
     StorageService.addPayment(payment, user.id);
     refreshDB();
     setShowSubmitModal(false);
+    setMemberSearchQuery('');
     setNewPayment({
       memberId: '',
       amount: '',
@@ -161,6 +242,11 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
     'Historical Payment',
     'Opening Balance'
   ];
+
+  const filteredMembers = members.filter(m => 
+    m.fullName.toLowerCase().includes(memberSearchQuery.toLowerCase()) || 
+    m.membershipId.toLowerCase().includes(memberSearchQuery.toLowerCase())
+  );
 
   return (
     <div className="space-y-6">
@@ -272,32 +358,53 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                <div className="space-y-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Select Member</label>
-                    <select 
-                      required
-                      value={newPayment.memberId}
-                      onChange={e => setNewPayment({...newPayment, memberId: e.target.value})}
-                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
-                    >
-                      <option value="">Choose Member...</option>
-                      {members.map(m => (
-                        <option key={m.id} value={m.id}>{m.fullName} ({m.membershipId})</option>
-                      ))}
-                    </select>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={memberSearchQuery}
+                        onChange={(e) => {
+                          setMemberSearchQuery(e.target.value);
+                          setIsMemberDropdownOpen(true);
+                          setNewPayment({...newPayment, memberId: ''});
+                        }}
+                        onFocus={() => setIsMemberDropdownOpen(true)}
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
+                        placeholder="Search Member..."
+                      />
+                      {isMemberDropdownOpen && (
+                        <>
+                          <div 
+                            className="fixed inset-0 z-[105]" 
+                            onClick={() => setIsMemberDropdownOpen(false)}
+                          ></div>
+                          <div className="absolute z-[110] w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                            {filteredMembers.length > 0 ? (
+                              filteredMembers.map(m => (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setNewPayment({...newPayment, memberId: m.id});
+                                    setMemberSearchQuery(`${m.fullName} (${m.membershipId})`);
+                                    setIsMemberDropdownOpen(false);
+                                  }}
+                                  className="w-full text-left px-4 py-2 hover:bg-indigo-50 transition-colors border-b border-slate-50 last:border-0"
+                                >
+                                  <div className="font-bold text-slate-700">{m.fullName}</div>
+                                  <div className="text-xs text-slate-400 font-mono">{m.membershipId}</div>
+                                </button>
+                              ))
+                            ) : (
+                              <div className="px-4 py-2 text-slate-400 italic text-sm">No members found</div>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
                   
+
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Payment Type</label>
-                      <select 
-                        value={newPayment.paymentType}
-                        onChange={e => setNewPayment({...newPayment, paymentType: e.target.value})}
-                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
-                      >
-                        {PAYMENT_TYPES.map(type => (
-                          <option key={type} value={type}>{type}</option>
-                        ))}
-                      </select>
-                    </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Method</label>
                       <select 
@@ -309,19 +416,6 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                         <option value="CASH">Cash</option>
                         <option value="POS">POS Terminal</option>
                       </select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Amount (₦)</label>
-                      <input 
-                        type="number" 
-                        required
-                        value={newPayment.amount}
-                        onChange={e => setNewPayment({...newPayment, amount: e.target.value})}
-                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
-                        placeholder="0.00"
-                      />
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Date</label>
@@ -338,28 +432,139 @@ const Payments: React.FC<PaymentsProps> = ({ user, refreshDB }) => {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Financial Year</label>
-                      <input 
-                        type="text"
-                        readOnly
-                        value={newPayment.appliedFinancialYear}
-                        className="w-full px-4 py-2 bg-slate-100 border border-slate-200 rounded-lg outline-none text-slate-500 font-bold cursor-not-allowed"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Reference / Teller No</label>
-                      <input 
-                        type="text" 
-                        required
-                        value={newPayment.referenceNumber}
-                        onChange={e => setNewPayment({...newPayment, referenceNumber: e.target.value})}
-                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
-                        placeholder="REF-..."
-                      />
-                    </div>
+
+                  <div className="mb-4">
+                     <label className="flex items-center space-x-2 cursor-pointer">
+                        <input 
+                           type="checkbox" 
+                           checked={isSplitMode} 
+                           onChange={e => setIsSplitMode(e.target.checked)} 
+                           className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300"
+                        />
+                        <span className="text-sm font-bold text-slate-700">Split Payment Allocation</span>
+                     </label>
                   </div>
+
+                  {!isSplitMode ? (
+                     <>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Payment Type</label>
+                                <select 
+                                    value={newPayment.paymentType}
+                                    onChange={e => setNewPayment({...newPayment, paymentType: e.target.value})}
+                                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
+                                >
+                                    {PAYMENT_TYPES.map(type => (
+                                    <option key={type} value={type}>{type}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Financial Year</label>
+                                <input 
+                                    type="text"
+                                    readOnly
+                                    value={newPayment.appliedFinancialYear}
+                                    className="w-full px-4 py-2 bg-slate-100 border border-slate-200 rounded-lg outline-none text-slate-500 font-bold cursor-not-allowed"
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Amount (₦)</label>
+                                <input 
+                                    type="number" 
+                                    required={!isSplitMode}
+                                    value={newPayment.amount}
+                                    onChange={e => setNewPayment({...newPayment, amount: e.target.value})}
+                                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
+                                    placeholder="0.00"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Reference / Teller No</label>
+                                <input 
+                                    type="text" 
+                                    required
+                                    value={newPayment.referenceNumber}
+                                    onChange={e => setNewPayment({...newPayment, referenceNumber: e.target.value})}
+                                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
+                                    placeholder="e.g. TRF-12345678"
+                                />
+                            </div>
+                        </div>
+                     </>
+                  ) : (
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+                        <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+                             <h4 className="text-xs font-black uppercase text-slate-500 tracking-widest">Allocations</h4>
+                             <span className="text-xs font-bold text-indigo-600">Total: ₦{totalSplitAmount.toLocaleString()}</span>
+                        </div>
+                        {splitAllocations.map((alloc, idx) => (
+                            <div key={idx} className="flex gap-2 items-end animate-in slide-in-from-left-2 duration-200">
+                                <div className="flex-1">
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Type</label>
+                                    <select 
+                                        value={alloc.type}
+                                        onChange={e => updateAllocation(idx, 'type', e.target.value)}
+                                        className="w-full px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700"
+                                    >
+                                        {PAYMENT_TYPES.map(type => (
+                                            <option key={type} value={type}>{type}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="w-20">
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Year</label>
+                                    <input 
+                                        type="text"
+                                        value={alloc.year}
+                                        onChange={e => updateAllocation(idx, 'year', e.target.value)}
+                                        className="w-full px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700"
+                                    />
+                                </div>
+                                <div className="w-28">
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount</label>
+                                    <input 
+                                        type="number"
+                                        value={alloc.amount}
+                                        onChange={e => updateAllocation(idx, 'amount', e.target.value)}
+                                        className="w-full px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 text-right"
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                                <button 
+                                    type="button"
+                                    onClick={() => removeAllocation(idx)}
+                                    className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+                                    disabled={splitAllocations.length === 1}
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                            </div>
+                        ))}
+                        <button 
+                            type="button" 
+                            onClick={addAllocation}
+                            className="w-full py-2 border-2 border-dashed border-slate-300 rounded-lg text-slate-400 font-bold text-xs uppercase hover:border-indigo-500 hover:text-indigo-500 transition-all"
+                        >
+                            + Add Allocation Line
+                        </button>
+
+                         <div className="pt-2 border-t border-slate-200">
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Reference / Teller No</label>
+                            <input 
+                                type="text" 
+                                required
+                                value={newPayment.referenceNumber}
+                                onChange={e => setNewPayment({...newPayment, referenceNumber: e.target.value})}
+                                className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700"
+                                placeholder="e.g. TRF-12345678"
+                            />
+                        </div>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Notes (Optional)</label>
                     <textarea 

@@ -21,7 +21,7 @@ const SessionManager: React.FC<SessionManagerProps> = ({ onLogout, token }) => {
     if (now - lastHeartbeatRef.current > HEARTBEAT_INTERVAL) {
       lastHeartbeatRef.current = now;
       
-      fetch('http://localhost:3005/api/auth/heartbeat', {
+      fetch('http://localhost:3006/api/auth/heartbeat', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       })

@@ -7,8 +7,26 @@ interface GeneralLedgerProps {
   refreshDB?: () => void;
 }
 
+const HIDDEN_ACCOUNTS = ['acc-bank', 'acc-receivable-clearing', 'acc-payable-clearing', 'acc-dues-clearing'];
+
+const getAccountName = (id: string) => {
+  if (!id) return '-';
+  if (id === 'acc-bank') return 'Bank / Cash';
+  if (id === 'acc-receivable-clearing') return 'Receivable Clearing';
+  if (id === 'acc-payable-clearing') return 'Payable Clearing';
+  if (id === 'acc-dues-clearing') return 'Dues Clearing';
+  if (id === 'acc-member-receivable') return 'Member Receivable';
+  if (id === 'acc-member-arrears') return 'Member Arrears';
+  if (id.startsWith('acc-revenue')) return id.replace('acc-revenue-', 'Rev: ').replace(/-/g, ' ').toUpperCase();
+  if (id.startsWith('acc-expense')) return id.replace('acc-expense-', 'Exp: ').replace(/-/g, ' ').toUpperCase();
+  if (id.startsWith('acc-fund')) return id.replace('acc-fund-', 'Fund: ').replace(/-/g, ' ').toUpperCase();
+  return id;
+};
+
 const GeneralLedger: React.FC<GeneralLedgerProps> = ({ user, refreshDB }) => {
   const [filterMemberId, setFilterMemberId] = useState<string>('');
+  const [memberSearch, setMemberSearch] = useState('');
+  const [isMemberDropdownOpen, setIsMemberDropdownOpen] = useState(false);
   const [filterStartDate, setFilterStartDate] = useState<string>('');
   const [filterEndDate, setFilterEndDate] = useState<string>('');
   const [filterYear, setFilterYear] = useState<string>('');
@@ -63,18 +81,20 @@ const GeneralLedger: React.FC<GeneralLedgerProps> = ({ user, refreshDB }) => {
       // Filter by Posting Type
       if (filterPostingType && entry.postingType !== filterPostingType) return false;
 
+      // Hide system entries where both sides are hidden (e.g. Bank <-> Clearing)
+      const isDebitVisible = !HIDDEN_ACCOUNTS.includes(entry.debitAccountId);
+      const isCreditVisible = !HIDDEN_ACCOUNTS.includes(entry.creditAccountId);
+      if (!isDebitVisible && !isCreditVisible) return false;
+
       return true;
     }).sort((a, b) => new Date(b.entryDate).getTime() - new Date(a.entryDate).getTime());
   }, [allEntries, filterMemberId, filterStartDate, filterEndDate, filterYear, filterPostingType]);
 
   const totals = useMemo(() => {
     return filteredEntries.reduce((acc, entry) => {
-      // Logic: Show everything. 
-      // If debitAccountId != 'acc-bank', it is a Debit (Charge, Expense).
-      // If creditAccountId != 'acc-bank', it is a Credit (Payment, Income).
-      
-      const isDebit = entry.debitAccountId !== 'acc-bank';
-      const isCredit = entry.creditAccountId !== 'acc-bank';
+      // Logic: Hide internal money movements (Bank, Clearing) to show effective "Net Balance"
+      const isDebit = !HIDDEN_ACCOUNTS.includes(entry.debitAccountId);
+      const isCredit = !HIDDEN_ACCOUNTS.includes(entry.creditAccountId);
 
       if (isDebit) {
           acc.debits += entry.amount;
@@ -95,12 +115,12 @@ const GeneralLedger: React.FC<GeneralLedgerProps> = ({ user, refreshDB }) => {
         </div>
         <div className="flex gap-2 items-center">
           {isAdmin && (
-              <button 
-                  onClick={() => setShowTools(!showTools)}
-                  className="mr-2 px-3 py-2 bg-indigo-50 text-indigo-700 font-bold text-xs uppercase rounded-lg border border-indigo-200 hover:bg-indigo-100"
-              >
-                  {showTools ? 'Hide Tools' : 'Fin. Year Tools'}
-              </button>
+            <button 
+                onClick={() => setShowTools(!showTools)}
+                className="mr-2 px-3 py-2 bg-indigo-50 text-indigo-700 font-bold text-xs uppercase rounded-lg border border-indigo-200 hover:bg-indigo-100"
+            >
+                {showTools ? 'Hide Tools' : 'Fin. Year Tools'}
+            </button>
           )}
           <div className="px-4 py-2 bg-white rounded-lg border border-slate-200 shadow-sm">
             <span className="text-xs font-bold text-slate-400 uppercase block">Total Debits</span>
@@ -162,18 +182,74 @@ const GeneralLedger: React.FC<GeneralLedgerProps> = ({ user, refreshDB }) => {
 
       {/* Filters */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div>
+        <div className="relative">
           <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Filter by Member</label>
-          <select 
-            value={filterMemberId}
-            onChange={(e) => setFilterMemberId(e.target.value)}
-            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            <option value="">All Members</option>
-            {members.map(m => (
-              <option key={m.id} value={m.id}>{m.fullName} ({m.membershipId})</option>
-            ))}
-          </select>
+          <div className="relative">
+            <input 
+              type="text"
+              placeholder="Search member..."
+              value={memberSearch}
+              onFocus={() => setIsMemberDropdownOpen(true)}
+              onChange={(e) => {
+                setMemberSearch(e.target.value);
+                setIsMemberDropdownOpen(true);
+                if (filterMemberId) setFilterMemberId('');
+              }}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            {memberSearch && (
+              <button 
+                onClick={() => {
+                  setFilterMemberId('');
+                  setMemberSearch('');
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            )}
+          </div>
+          
+          {isMemberDropdownOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setIsMemberDropdownOpen(false)}></div>
+              <div className="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                <div 
+                  className="px-3 py-2 hover:bg-slate-50 cursor-pointer text-sm text-slate-500 italic"
+                  onClick={() => {
+                    setFilterMemberId('');
+                    setMemberSearch('');
+                    setIsMemberDropdownOpen(false);
+                  }}
+                >
+                  All Members
+                </div>
+                {members.filter(m => 
+                  m.fullName.toLowerCase().includes(memberSearch.toLowerCase()) || 
+                  m.membershipId.toLowerCase().includes(memberSearch.toLowerCase())
+                ).map(m => (
+                  <div 
+                    key={m.id}
+                    className="px-3 py-2 hover:bg-indigo-50 cursor-pointer text-sm border-t border-slate-50"
+                    onClick={() => {
+                      setFilterMemberId(m.id);
+                      setMemberSearch(m.fullName);
+                      setIsMemberDropdownOpen(false);
+                    }}
+                  >
+                    <span className="font-bold text-slate-700">{m.fullName}</span>
+                    <span className="text-xs text-slate-400 ml-2">({m.membershipId})</span>
+                  </div>
+                ))}
+                {members.filter(m => 
+                  m.fullName.toLowerCase().includes(memberSearch.toLowerCase()) || 
+                  m.membershipId.toLowerCase().includes(memberSearch.toLowerCase())
+                ).length === 0 && (
+                  <div className="px-3 py-2 text-sm text-slate-400">No members found</div>
+                )}
+              </div>
+            </>
+          )}
         </div>
         <div>
           <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Start Date</label>
@@ -245,7 +321,6 @@ const GeneralLedger: React.FC<GeneralLedgerProps> = ({ user, refreshDB }) => {
                     <tr key={entry.id} className="text-sm hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-4 text-slate-500 font-mono whitespace-nowrap">{entry.entryDate}</td>
                       <td className="px-6 py-4 font-bold text-slate-600 text-center">{entry.appliedFinancialYear || '-'}</td>
-                      <td className="px-6 py-4 text-slate-500 text-center">{new Date(entry.entryDate).getFullYear()}</td>
                       <td className="px-6 py-4">
                         {member ? (
                           <div>
@@ -268,11 +343,11 @@ const GeneralLedger: React.FC<GeneralLedgerProps> = ({ user, refreshDB }) => {
                           {entry.postingType?.replace(/_/g, ' ') || 'GENERAL'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right font-mono text-red-600 whitespace-nowrap">
-                        {(entry.debitAccountId !== 'acc-bank') ? `₦${entry.amount.toLocaleString()}` : '-'}
+                      <td className="px-6 py-4 text-right font-mono text-red-600 whitespace-nowrap" title={getAccountName(entry.debitAccountId)}>
+                        {!HIDDEN_ACCOUNTS.includes(entry.debitAccountId) ? `₦${entry.amount.toLocaleString()}` : '-'}
                       </td>
-                      <td className="px-6 py-4 text-right font-mono text-emerald-600 whitespace-nowrap">
-                        {(entry.creditAccountId !== 'acc-bank') ? `₦${entry.amount.toLocaleString()}` : '-'}
+                      <td className="px-6 py-4 text-right font-mono text-emerald-600 whitespace-nowrap" title={getAccountName(entry.creditAccountId)}>
+                        {!HIDDEN_ACCOUNTS.includes(entry.creditAccountId) ? `₦${entry.amount.toLocaleString()}` : '-'}
                       </td>
                       <td className="px-6 py-4 text-right text-xs text-slate-400 font-mono">
                          {entry.referenceType}

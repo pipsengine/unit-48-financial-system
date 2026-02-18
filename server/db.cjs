@@ -13,7 +13,7 @@ class DbService {
       if (err) {
         console.error('Could not connect to database', err);
       } else {
-        console.log('Connected to SQLite database: Unit48_Ps');
+        // console.log('Connected to SQLite database: Unit48_Ps');
         this.init();
       }
     });
@@ -76,6 +76,70 @@ class DbService {
 
   async init() {
     try {
+      await this.ensureColumn('ledger_entry', 'category', 'TEXT');
+      await this.ensureColumn('ledger_entry', 'applied_financial_year', 'INTEGER');
+      await this.ensureColumn('ledger_entry', 'posting_type', 'TEXT');
+
+      // MIGRATION: Backfill missing data for existing live records
+      console.log('Running migrations to backfill data...');
+      
+      // 1. Backfill Applied Financial Year from Effective Date
+      await this.run(`
+        UPDATE ledger_entry 
+        SET applied_financial_year = strftime('%Y', effective_date) 
+        WHERE applied_financial_year IS NULL
+      `);
+
+      // 2. Backfill Category based on Account IDs or Description
+       // Note: We use OR IGNORE or specific conditions to ensure we don't overwrite if not needed, 
+       // but here we want to FIX existing wrong categories (like generic 'DUES')
+       
+       await this.run(`
+         UPDATE ledger_entry 
+         SET category = 'NATIONAL_DUE' 
+         WHERE (category IS NULL OR category = 'DUES') 
+         AND (
+           credit_account_id = 'acc-revenue-national' 
+           OR description LIKE '%National Due%'
+           OR description LIKE '%National%'
+         )
+       `);
+       
+       await this.run(`
+         UPDATE ledger_entry 
+         SET category = 'UNIT_DUE' 
+         WHERE (category IS NULL OR category = 'DUES') 
+         AND (
+           credit_account_id = 'acc-revenue-unit' 
+           OR description LIKE '%Unit Due%'
+           OR description LIKE '%Unit%'
+         )
+       `);
+ 
+       await this.run(`
+         UPDATE ledger_entry 
+         SET category = 'WELFARE_DUE' 
+         WHERE (category IS NULL OR category = 'DUES') 
+         AND (
+           credit_account_id = 'acc-revenue-welfare' 
+           OR description LIKE '%Welfare Due%'
+           OR description LIKE '%Welfare%'
+         )
+       `);
+ 
+       await this.run(`
+         UPDATE ledger_entry 
+         SET category = 'DEVELOPMENT_LEVY' 
+         WHERE (category IS NULL OR category = 'DUES') 
+         AND (
+           credit_account_id = 'acc-revenue-development' 
+           OR description LIKE '%Development Levy%'
+           OR description LIKE '%Development%'
+         )
+       `);
+      
+      console.log('Migrations completed.');
+
       await this.run(`
         CREATE TABLE IF NOT EXISTS member (
           id TEXT PRIMARY KEY,
@@ -142,7 +206,8 @@ class DbService {
           reference_id TEXT,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
           applied_financial_year INTEGER,
-          posting_type TEXT
+          posting_type TEXT,
+          category TEXT
         )
       `);
 
@@ -294,8 +359,8 @@ class DbService {
       }
       for (const l of MOCK_LEDGER) {
         await this.run(
-          "INSERT OR IGNORE INTO ledger_entry (id, entry_date, effective_date, description, debit_account_id, credit_account_id, amount, member_id, reference_type, reference_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-          [l.id, l.entryDate, l.effectiveDate, l.description, l.debitAccountId, l.creditAccountId, l.amount, l.memberId, l.referenceType, l.referenceId, l.createdAt]
+          "INSERT OR IGNORE INTO ledger_entry (id, entry_date, effective_date, description, debit_account_id, credit_account_id, amount, member_id, reference_type, reference_id, created_at, applied_financial_year, posting_type, category) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          [l.id, l.entryDate, l.effectiveDate, l.description, l.debitAccountId, l.creditAccountId, l.amount, l.memberId, l.referenceType, l.referenceId, l.createdAt, l.appliedFinancialYear, l.postingType, l.category]
         );
       }
       for (const a of MOCK_AUDIT_LOGS) {

@@ -1,12 +1,19 @@
 
+
 const express = require('express');
+// console.log('SERVER RESTARTING - VERIFICATION - ' + new Date().toISOString());
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const db = require('./db.cjs');
 const crypto = require('crypto');
 const https = require('https');
-
+const path = require('path');
 const app = express();
+
+// Serve Vite build
+app.use(express.static(path.join(__dirname, '../dist')));
+
+app.get('/api/debug/hello', (req, res) => res.json({ message: 'Hello' }));
 
 const sendSms = (to, body) => {
   let toNumber = to;
@@ -101,7 +108,7 @@ app.delete('/api/payment/:id', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3005;
+const PORT = 3006; // Force port 3006
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -415,16 +422,37 @@ app.post('/api/batch/assessments', authenticateToken, async (req, res) => {
         if (allocations && Array.isArray(allocations)) {
             // Create multiple split entries per member
             allocations.forEach((alloc, idx) => {
+                // 1. Receivable Recognition (Dr Member Rec, Cr Clearing)
                 ledgerEntries.push({
-                    id: `l-year-${year}-${member.id}-${idx}`,
+                    id: `l-year-${year}-${member.id}-${idx}-1`,
                     entry_date: `${year}-01-01`,
                     effective_date: `${year}-01-01`,
-                    description: description || `ANNUAL ASSESSMENT ${year} - ${alloc.description || 'General'}`,
+                    description: description || `ANNUAL ASSESSMENT ${year} - ${alloc.description || 'General'} (Rec)`,
                     debit_account_id: 'acc-member-receivable',
+                    credit_account_id: 'acc-dues-clearing',
+                    amount: alloc.amount,
+                    member_id: member.id,
+                    reference_type: 'AUTO_DEBIT_BATCH_REC',
+                    reference_id: referenceId || `year-assessment-${year}-${Date.now()}`,
+                    created_at: new Date().toISOString(),
+                    applied_financial_year: year,
+                    posting_year: new Date().getFullYear(),
+                    posting_type: 'CURRENT_YEAR_CHARGE',
+                    category: 'DUES',
+                    status: 'POSTED'
+                });
+
+                // 2. Revenue Recognition (Dr Clearing, Cr Revenue)
+                ledgerEntries.push({
+                    id: `l-year-${year}-${member.id}-${idx}-2`,
+                    entry_date: `${year}-01-01`,
+                    effective_date: `${year}-01-01`,
+                    description: description || `ANNUAL ASSESSMENT ${year} - ${alloc.description || 'General'} (Rev)`,
+                    debit_account_id: 'acc-dues-clearing',
                     credit_account_id: alloc.account,
                     amount: alloc.amount,
                     member_id: member.id,
-                    reference_type: 'AUTO_DEBIT_BATCH',
+                    reference_type: 'AUTO_DEBIT_BATCH_REV',
                     reference_id: referenceId || `year-assessment-${year}-${Date.now()}`,
                     created_at: new Date().toISOString(),
                     applied_financial_year: year,
@@ -435,17 +463,38 @@ app.post('/api/batch/assessments', authenticateToken, async (req, res) => {
                 });
             });
         } else {
-            // Legacy single entry behavior
+            // Legacy single entry behavior -> Converted to 2 rows
+            // 1. Receivable
             ledgerEntries.push({
-                id: `l-year-${year}-${member.id}`,
+                id: `l-year-${year}-${member.id}-1`,
                 entry_date: `${year}-01-01`,
                 effective_date: `${year}-01-01`,
-                description: description || `ANNUAL ASSESSMENT ${year}`,
+                description: description || `ANNUAL ASSESSMENT ${year} (Rec)`,
                 debit_account_id: 'acc-member-receivable',
+                credit_account_id: 'acc-dues-clearing',
+                amount: amount,
+                member_id: member.id,
+                reference_type: 'AUTO_DEBIT_BATCH_REC',
+                reference_id: referenceId || `year-assessment-${year}-${Date.now()}`,
+                created_at: new Date().toISOString(),
+                applied_financial_year: year,
+                posting_year: new Date().getFullYear(),
+                posting_type: 'CURRENT_YEAR_CHARGE',
+                category: 'DUES',
+                status: 'POSTED'
+            });
+
+            // 2. Revenue
+            ledgerEntries.push({
+                id: `l-year-${year}-${member.id}-2`,
+                entry_date: `${year}-01-01`,
+                effective_date: `${year}-01-01`,
+                description: description || `ANNUAL ASSESSMENT ${year} (Rev)`,
+                debit_account_id: 'acc-dues-clearing',
                 credit_account_id: 'acc-revenue-annual',
                 amount: amount,
                 member_id: member.id,
-                reference_type: 'AUTO_DEBIT_BATCH',
+                reference_type: 'AUTO_DEBIT_BATCH_REV',
                 reference_id: referenceId || `year-assessment-${year}-${Date.now()}`,
                 created_at: new Date().toISOString(),
                 applied_financial_year: year,
@@ -556,20 +605,42 @@ app.post('/api/member/:id/assess-current-year', authenticateToken, async (req, r
           continue;
         }
 
-        const id = `l-year-${year}-${memberId}-split-${idx}`;
+        const id1 = `l-year-${year}-${memberId}-split-${idx}-1`;
+        const id2 = `l-year-${year}-${memberId}-split-${idx}-2`;
         const label = alloc.description.replace(' Dues', ' Due');
         const description = `${year} ${label} Assessment`;
 
+        // 1. Receivable (Dr Member Rec, Cr Clearing)
         await db.run(stmt, [
-          id,
+          id1,
           entryDate,
           entryDate,
-          description,
+          description + ' (Rec)',
           'acc-member-receivable',
+          'acc-dues-clearing',
+          alloc.amount,
+          memberId,
+          'AUTO_DEBIT_SINGLE_REC',
+          referenceId,
+          today,
+          year,
+          postingYear,
+          'CURRENT_YEAR_CHARGE',
+          alloc.category,
+          'POSTED'
+        ]);
+
+        // 2. Revenue (Dr Clearing, Cr Revenue)
+        await db.run(stmt, [
+          id2,
+          entryDate,
+          entryDate,
+          description + ' (Rev)',
+          'acc-dues-clearing',
           alloc.account,
           alloc.amount,
           memberId,
-          'AUTO_DEBIT_SINGLE',
+          'AUTO_DEBIT_SINGLE_REV',
           referenceId,
           today,
           year,
@@ -594,6 +665,55 @@ app.post('/api/member/:id/assess-current-year', authenticateToken, async (req, r
 });
 
 // Generic CRUD endpoints
+const syncOpeningBalance = async (member) => {
+  const memberId = member.id;
+  const amount = member.previous_balance;
+  
+  // Delete existing
+  await db.run('DELETE FROM ledger_entry WHERE member_id = ? AND posting_type = ?', [memberId, 'OPENING_BALANCE']);
+  
+  if (!amount || amount === 0) return;
+
+  const isSurplus = amount > 0;
+  const absAmount = Math.abs(amount);
+  const entryDate = new Date().toISOString().split('T')[0]; 
+  const effectiveDate = member.date_of_joining || entryDate;
+  const year = new Date(effectiveDate).getFullYear();
+  const refId = `opening-bal-${memberId}-${Date.now()}`;
+
+  const drAccount = isSurplus ? 'acc-opening-balance-equity' : 'acc-member-arrears';
+  const crAccount = isSurplus ? 'acc-member-arrears' : 'acc-opening-balance-equity';
+  
+  const description = isSurplus 
+    ? `Opening Balance: Surplus/Credit B/F` 
+    : `Opening Balance: Arrears/Debit B/F`;
+
+  const entry = {
+    id: `l-ob-${memberId}-${Date.now()}-1`,
+    entry_date: entryDate,
+    effective_date: effectiveDate,
+    description: description,
+    debit_account_id: drAccount,
+    credit_account_id: crAccount,
+    amount: absAmount,
+    member_id: memberId,
+    reference_type: 'OPENING_BALANCE',
+    reference_id: refId,
+    created_at: new Date().toISOString(),
+    applied_financial_year: year,
+    posting_year: new Date().getFullYear(),
+    posting_type: 'OPENING_BALANCE',
+    category: 'OUTSTANDING_ARREARS',
+    status: 'POSTED'
+  };
+
+  const stmt = `INSERT INTO ledger_entry (
+    id, entry_date, effective_date, description, debit_account_id, credit_account_id, amount, member_id, reference_type, reference_id, created_at, applied_financial_year, posting_year, posting_type, category, status
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+  await db.run(stmt, Object.values(entry));
+};
+
 const tables = ['member', 'payment', 'ledger_entry', 'expense', 'dues_config', 'audit_log'];
 
 tables.forEach(table => {
@@ -611,6 +731,14 @@ tables.forEach(table => {
   app.post(`/api/${table}`, async (req, res) => {
     try {
       const data = req.body;
+      
+      // Enforce constraint: Expenses must never have a member attached
+      // Check both camelCase (from client) and snake_case (if manually posted)
+      if (table === 'ledger_entry' && (data.postingType === 'EXPENSE' || data.posting_type === 'EXPENSE')) {
+        data.memberId = null;
+        data.member_id = null;
+      }
+
       const keys = Object.keys(data);
       // Convert camelCase to snake_case for DB
       const toSnake = (k) => k.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
@@ -622,6 +750,27 @@ tables.forEach(table => {
       const sql = `INSERT OR REPLACE INTO ${table} (${dbKeys.join(',')}) VALUES (${placeholders})`;
       
       await db.run(sql, values);
+
+      // Auto-sync Opening Balance if updating/inserting a member
+      if (table === 'member') {
+        let memberId = data.id;
+        // If we don't have ID (new insert), try to fetch by membership_id
+        if (!memberId && data.membershipId) {
+             const m = await db.get('SELECT id FROM member WHERE membership_id = ?', [data.membershipId]);
+             if (m) memberId = m.id;
+        } else if (!memberId && data.membership_id) {
+             const m = await db.get('SELECT id FROM member WHERE membership_id = ?', [data.membership_id]);
+             if (m) memberId = m.id;
+        }
+
+        if (memberId) {
+             const member = await db.get('SELECT * FROM member WHERE id = ?', [memberId]);
+             if (member) {
+                 await syncOpeningBalance(member);
+             }
+        }
+      }
+
       res.json({ success: true });
     } catch (err) {
       console.error(`Error inserting into ${table}:`, err);
@@ -631,6 +780,39 @@ tables.forEach(table => {
 });
 
 // Specific endpoints for actions (mimicking StorageService logic)
+
+// Update member balance (Opening Balance / Arrears) with Ledger Entries
+app.post('/api/member/:id/balance', authenticateToken, async (req, res) => {
+  try {
+    const memberId = req.params.id;
+    const { amount, adminId } = req.body; // amount: positive (surplus) or negative (owing)
+
+    const member = await db.get('SELECT * FROM member WHERE id = ?', [memberId]);
+    if (!member) return res.status(404).json({ error: 'Member not found' });
+
+    await db.run('BEGIN TRANSACTION');
+
+    try {
+      // 1. Update Member Record
+      await db.run('UPDATE member SET previous_balance = ? WHERE id = ?', [amount, memberId]);
+
+      // 2. Sync Opening Balance
+      const member = await db.get('SELECT * FROM member WHERE id = ?', [memberId]);
+      if (member) {
+          await syncOpeningBalance(member);
+      }
+
+      await db.run('COMMIT');
+      res.json({ success: true });
+    } catch (e) {
+      await db.run('ROLLBACK');
+      throw e;
+    }
+  } catch (err) {
+    console.error('Update balance error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Delete member
 app.delete('/api/member/:id', async (req, res) => {
@@ -682,31 +864,50 @@ app.post('/api/payment/:id/reverse', async (req, res) => {
         const appliedYear = payment.applied_financial_year || new Date(payment.payment_date).getFullYear();
         const isArrears = appliedYear < currentYear;
         
-        const contraEntryId = `l-rev-${Date.now()}`;
-        const contraEntry = {
-            id: contraEntryId,
-            entry_date: now.split('T')[0], // Today
-            effective_date: payment.payment_date,
-            description: `REVERSAL of Payment ${payment.reference_number}: ${reason}`,
-            debit_account_id: isArrears ? 'acc-member-arrears' : 'acc-member-receivable', // Swap Debit/Credit
-            credit_account_id: 'acc-bank',
-            amount: payment.amount,
-            member_id: payment.member_id,
-            reference_type: 'PAYMENT_REVERSAL',
-            reference_id: payment.id,
-            created_at: now,
-            applied_financial_year: appliedYear,
-            posting_type: 'PAYMENT_REVERSAL'
-        };
-
-        await db.run(`
+        const id1 = `l-rev-${Date.now()}-1`;
+        const id2 = `l-rev-${Date.now()}-2`;
+        const entryDate = now.split('T')[0];
+        
+        const stmt = `
             INSERT INTO ledger_entry (
                 id, entry_date, effective_date, description, 
                 debit_account_id, credit_account_id, amount, member_id, 
                 reference_type, reference_id, created_at, applied_financial_year, posting_type
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            Object.values(contraEntry)
-        );
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+        // 1. Reverse Receipt (Dr Clearing, Cr Bank)
+        await db.run(stmt, [
+            id1, 
+            entryDate, 
+            payment.payment_date, 
+            `REVERSAL (Receipt) of Payment ${payment.reference_number}: ${reason}`,
+            'acc-receivable-clearing', 
+            'acc-bank', 
+            payment.amount, 
+            payment.member_id, 
+            'PAYMENT_REVERSAL_RECEIPT', 
+            payment.id, 
+            now, 
+            appliedYear, 
+            'PAYMENT_REVERSAL'
+        ]);
+
+        // 2. Reverse Settlement (Dr Rec, Cr Clearing)
+        await db.run(stmt, [
+            id2, 
+            entryDate, 
+            payment.payment_date, 
+            `REVERSAL (Settlement) of Payment ${payment.reference_number}: ${reason}`,
+            isArrears ? 'acc-member-arrears' : 'acc-member-receivable', 
+            'acc-receivable-clearing', 
+            payment.amount, 
+            payment.member_id, 
+            'PAYMENT_REVERSAL_SETTLEMENT', 
+            payment.id, 
+            now, 
+            appliedYear, 
+            'PAYMENT_REVERSAL'
+        ]);
 
         // Audit Log
         const auditId = `aud-${Date.now()}`;
@@ -751,29 +952,43 @@ app.post('/api/payment/:id/reclassify', async (req, res) => {
         const oldAppliedYear = payment.applied_financial_year || new Date(payment.payment_date).getFullYear();
         const wasArrears = oldAppliedYear < currentYear;
 
-        const contraEntryId = `l-rev-${Date.now()}`;
-        await db.run(`
-            INSERT INTO ledger_entry (
-                id, entry_date, effective_date, description, 
-                debit_account_id, credit_account_id, amount, member_id, 
-                reference_type, reference_id, created_at, applied_financial_year, posting_type
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                contraEntryId, 
-                now.split('T')[0], 
-                payment.payment_date, 
-                `REVERSAL (CORRECTION) of Payment ${payment.reference_number}: ${reason}`,
-                wasArrears ? 'acc-member-arrears' : 'acc-member-receivable',
-                'acc-bank',
-                payment.amount,
-                payment.member_id,
-                'PAYMENT_REVERSAL',
-                paymentId,
-                now,
-                oldAppliedYear,
-                'PAYMENT_REVERSAL'
-            ]
-        );
+        const revId1 = `l-rev-${Date.now()}-1`;
+        const revId2 = `l-rev-${Date.now()}-2`;
+        const stmt = `INSERT INTO ledger_entry (id, entry_date, effective_date, description, debit_account_id, credit_account_id, amount, member_id, reference_type, reference_id, created_at, applied_financial_year, posting_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+        // 1. Reverse Receipt
+        await db.run(stmt, [
+            revId1, 
+            now.split('T')[0], 
+            payment.payment_date, 
+            `REVERSAL (Receipt) of Payment ${payment.reference_number}: ${reason}`,
+            'acc-receivable-clearing', 
+            'acc-bank',
+            payment.amount, 
+            payment.member_id, 
+            'PAYMENT_REVERSAL_RECEIPT',
+            paymentId, 
+            now, 
+            oldAppliedYear, 
+            'PAYMENT_REVERSAL'
+        ]);
+
+        // 2. Reverse Settlement
+        await db.run(stmt, [
+            revId2, 
+            now.split('T')[0], 
+            payment.payment_date, 
+            `REVERSAL (Settlement) of Payment ${payment.reference_number}: ${reason}`,
+            wasArrears ? 'acc-member-arrears' : 'acc-member-receivable', 
+            'acc-receivable-clearing',
+            payment.amount, 
+            payment.member_id, 
+            'PAYMENT_REVERSAL_SETTLEMENT',
+            paymentId, 
+            now, 
+            oldAppliedYear, 
+            'PAYMENT_REVERSAL'
+        ]);
 
         // 3. Create New Corrected Payment
         const newPaymentId = `p-cor-${Date.now()}`;
@@ -804,30 +1019,42 @@ app.post('/api/payment/:id/reclassify', async (req, res) => {
 
         // 4. Create New Ledger Entry
         const isNewArrears = newAppliedYear < currentYear;
-        const newLedgerId = `l-pay-${Date.now()}`;
+        const newId1 = `l-pay-${Date.now()}-1`;
+        const newId2 = `l-pay-${Date.now()}-2`;
         
-        await db.run(`
-            INSERT INTO ledger_entry (
-                id, entry_date, effective_date, description, 
-                debit_account_id, credit_account_id, amount, member_id, 
-                reference_type, reference_id, created_at, applied_financial_year, posting_type
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                newLedgerId,
-                newDate,
-                newDate,
-                `Payment (${payment.payment_type || 'General'}): ${payment.reference_number} (CORRECTED)`,
-                'acc-bank',
-                isNewArrears ? 'acc-member-arrears' : 'acc-member-receivable',
-                payment.amount,
-                payment.member_id,
-                'PAYMENT',
-                newPaymentId,
-                now,
-                newAppliedYear,
-                isNewArrears ? 'ARREARS_SETTLEMENT' : 'GENERAL_PAYMENT'
-            ]
-        );
+        // 1. New Receipt
+        await db.run(stmt, [
+            newId1, 
+            newDate, 
+            newDate, 
+            `Payment Receipt (${payment.payment_type || 'General'}): ${payment.reference_number} (CORRECTED)`,
+            'acc-bank', 
+            'acc-receivable-clearing',
+            payment.amount, 
+            payment.member_id, 
+            'PAYMENT_RECEIPT',
+            newPaymentId, 
+            now, 
+            newAppliedYear, 
+            isNewArrears ? 'ARREARS_SETTLEMENT' : 'GENERAL_PAYMENT'
+        ]);
+
+        // 2. New Settlement
+        await db.run(stmt, [
+            newId2, 
+            newDate, 
+            newDate, 
+            `Payment Settlement (${payment.payment_type || 'General'}): ${payment.reference_number} (CORRECTED)`,
+            'acc-receivable-clearing', 
+            isNewArrears ? 'acc-member-arrears' : 'acc-member-receivable',
+            payment.amount, 
+            payment.member_id, 
+            'PAYMENT_SETTLEMENT',
+            newPaymentId, 
+            now, 
+            newAppliedYear, 
+            isNewArrears ? 'ARREARS_SETTLEMENT' : 'GENERAL_PAYMENT'
+        ]);
 
         // Audit Log
         const auditId = `aud-${Date.now()}`;
@@ -909,6 +1136,24 @@ app.post('/api/members/bulk_upsert', async (req, res) => {
 });
 
 
+// Fallback to index.html for SPA routing
+// app.get('*', (req, res) => {
+//   res.sendFile(path.join(__dirname, '../dist/index.html'));
+// });
+
+// Add temporary debug route to inspect ledger
+app.get('/api/debug/ledger', async (req, res) => {
+  try {
+    const entries = await db.all("SELECT * FROM ledger_entry WHERE posting_type = 'PAYMENT' OR description LIKE '%Payment%' LIMIT 50");
+    res.json(entries);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
+// Prevent process from exiting (temp fix for Node 25/environment issue)
+setInterval(() => {}, 60000);

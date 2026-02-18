@@ -89,11 +89,11 @@ const MembersList: React.FC<MembersListProps> = ({ refreshDB, currentUser }) => 
     }
   };
 
-  const handleSaveBalance = (e: React.FormEvent) => {
+  const handleSaveBalance = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!balanceUpdateMember) return;
 
-    StorageService.updateMember(balanceUpdateMember);
+    await StorageService.updateMemberBalance(balanceUpdateMember.id, balanceUpdateMember.previousBalance || 0);
     // setMembers(StorageService.getMembers());
     refreshDB();
     setBalanceUpdateMember(null);

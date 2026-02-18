@@ -241,7 +241,10 @@ const MOCK_LEDGER = [
     memberId: 'm1',
     referenceType: 'AUTO_DEBIT_BATCH',
     referenceId: 'b1',
-    createdAt: '2026-01-01T00:10:00Z'
+    createdAt: '2026-01-01T00:10:00Z',
+    category: 'NATIONAL_DUE',
+    appliedFinancialYear: 2026,
+    postingType: 'CURRENT_YEAR_CHARGE'
   },
   {
     id: 'l2',
@@ -254,7 +257,42 @@ const MOCK_LEDGER = [
     memberId: 'm1',
     referenceType: 'PAYMENT',
     referenceId: 'p1',
-    createdAt: '2026-01-10T14:30:00Z'
+    createdAt: '2026-01-10T14:30:00Z',
+    category: 'NATIONAL_DUE', // Assuming this covers National Due + others
+    appliedFinancialYear: 2026,
+    postingType: 'PAYMENT'
+  },
+  {
+    id: 'l3',
+    entryDate: '2026-01-01',
+    effectiveDate: '2026-01-01',
+    description: 'Unit Due - Jan 2026',
+    debitAccountId: 'acc-member-receivable',
+    creditAccountId: 'acc-revenue-unit',
+    amount: 500,
+    memberId: 'm1',
+    referenceType: 'AUTO_DEBIT_BATCH',
+    referenceId: 'b1',
+    createdAt: '2026-01-01T00:10:00Z',
+    category: 'UNIT_DUE',
+    appliedFinancialYear: 2026,
+    postingType: 'CURRENT_YEAR_CHARGE'
+  },
+  {
+    id: 'l4',
+    entryDate: '2026-01-01',
+    effectiveDate: '2026-01-01',
+    description: 'Welfare Due - Jan 2026',
+    debitAccountId: 'acc-member-receivable',
+    creditAccountId: 'acc-revenue-welfare',
+    amount: 300,
+    memberId: 'm1',
+    referenceType: 'AUTO_DEBIT_BATCH',
+    referenceId: 'b1',
+    createdAt: '2026-01-01T00:10:00Z',
+    category: 'WELFARE_DUE',
+    appliedFinancialYear: 2026,
+    postingType: 'CURRENT_YEAR_CHARGE'
   }
 ];
 

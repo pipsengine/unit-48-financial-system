@@ -18,6 +18,8 @@ import BalanceSheet from './components/BalanceSheet';
 import DuesConfig from './components/DuesConfig';
 import Reports from './components/Reports';
 import AuditLogs from './components/AuditLogs';
+import TrialBalance from './components/TrialBalance';
+import FinancialDashboard from './components/FinancialDashboard';
 
 const App: React.FC = () => {
   const [isInitializing, setIsInitializing] = useState(true);
@@ -42,7 +44,7 @@ const App: React.FC = () => {
           
           // Verify token with server
           try {
-            const res = await fetch('http://localhost:3005/api/auth/heartbeat', {
+            const res = await fetch('http://localhost:3006/api/auth/heartbeat', {
                method: 'POST',
                headers: { 'Authorization': `Bearer ${savedToken}` }
             });
@@ -88,7 +90,7 @@ const App: React.FC = () => {
     }
 
     try {
-      const res = await fetch('http://localhost:3005/api/auth/login', {
+      const res = await fetch('http://localhost:3006/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ membershipId, password })
@@ -219,6 +221,8 @@ const App: React.FC = () => {
       case 'ledger': return <Ledger user={currentUser} setActiveTab={setActiveTab} />;
       case 'general_ledger': return <GeneralLedger user={currentUser} refreshDB={refreshDB} />;
       case 'balance_sheet': return <BalanceSheet />;
+      case 'trial_balance': return <TrialBalance />;
+      case 'financial_dashboard': return <FinancialDashboard />;
       case 'dues': return <DuesConfig refreshDB={refreshDB} />;
       case 'reports': return <Reports />;
       case 'audit': return <AuditLogs />;
