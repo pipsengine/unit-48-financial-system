@@ -133,7 +133,7 @@ const App: React.FC = () => {
 
   const handleLogout = (reason?: string) => {
     if (token) {
-      fetch('http://localhost:3005/api/auth/logout', {
+      fetch('http://localhost:3006/api/auth/logout', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       }).catch(console.error);

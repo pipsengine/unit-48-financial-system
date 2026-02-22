@@ -20,13 +20,18 @@ const FinancialDashboard: React.FC = () => {
   
   // Determine available years from ledger, defaulting to current year if empty
   // Fixed: Ensure currentYear is not used as a variable, but derived dynamically
-  const availableYears = useMemo(() => {
-    const years = new Set(ledger.map(l => l.appliedFinancialYear).filter(y => y));
+  const availableYears = useMemo<number[]>(() => {
+    const years = new Set<number>();
+    ledger.forEach(l => {
+      if (typeof l.appliedFinancialYear === 'number') {
+        years.add(l.appliedFinancialYear);
+      }
+    });
     years.add(new Date().getFullYear());
     return Array.from(years).sort((a, b) => b - a);
   }, [ledger]);
 
-  const [selectedYear, setSelectedYear] = useState<number>(availableYears[0]);
+  const [selectedYear, setSelectedYear] = useState<number>(availableYears[0] || new Date().getFullYear());
 
   // 1. Overall Stats (Calculated for Selected Year)
   const overallStats = useMemo(() => {
@@ -77,7 +82,7 @@ const FinancialDashboard: React.FC = () => {
     };
 
     return uniqueTypes.map(type => {
-       const category = categoryMap[type] || type;
+       const category = categoryMap[String(type)] || String(type);
        let paidCount = 0;
        let owingCount = 0;
 

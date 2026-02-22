@@ -62,10 +62,13 @@ const TrialBalance: React.FC = () => {
       return getAccountName(a).localeCompare(getAccountName(b));
   });
 
-  const totals = Object.values(accountBalances).reduce((acc: { debit: number; credit: number }, b: { debit: number; credit: number }) => ({
+  const totals = (Object.values(accountBalances) as Array<{ debit: number; credit: number }>).reduce<{ debit: number; credit: number }>(
+    (acc, b) => ({
       debit: acc.debit + b.debit,
       credit: acc.credit + b.credit
-  }), { debit: 0, credit: 0 });
+    }),
+    { debit: 0, credit: 0 }
+  );
 
   const isBalanced = Math.abs(totals.debit - totals.credit) < 1;
 
