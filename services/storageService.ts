@@ -16,7 +16,13 @@ import {
   LedgerStatus
 } from '../types';
 
-const API_URL = (import.meta as any)?.env?.VITE_API_URL || 'http://localhost:3006/api';
+let API_URL = (import.meta as any)?.env?.VITE_API_URL || 'http://localhost:3006/api';
+try {
+  const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+  if (isHttps && API_URL.startsWith('http://') && !API_URL.includes('localhost')) {
+    API_URL = API_URL.replace('http://', 'https://');
+  }
+} catch {}
 
 // Cache structure
 interface Cache {

@@ -14,6 +14,7 @@ const app = express();
 app.use(express.static(path.join(__dirname, '../dist')));
 
 app.get('/api/debug/hello', (req, res) => res.json({ message: 'Hello' }));
+app.get('/api/health', (req, res) => res.json({ ok: true, timestamp: Date.now() }));
 
 const sendSms = (to, body) => {
   let toNumber = to;
@@ -108,9 +109,23 @@ app.delete('/api/payment/:id', async (req, res) => {
   }
 });
 
-const PORT = 3006; // Force port 3006
+const PORT = process.env.PORT || 3006;
 
-app.use(cors());
+const defaultOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://unit-48-financial-system.vercel.app'
+];
+const extra = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean) : [];
+const allowedOrigins = [...new Set([...defaultOrigins, ...extra])];
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(null, false);
+  },
+  credentials: true
+}));
 app.use(bodyParser.json());
 
 // Auth Endpoints
@@ -1152,7 +1167,7 @@ app.get('/api/debug/ledger', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
 });
 
 // Prevent process from exiting (temp fix for Node 25/environment issue)

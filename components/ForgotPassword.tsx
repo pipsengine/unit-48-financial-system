@@ -19,9 +19,10 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBack }) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
+    const API_URL = ((import.meta as any)?.env?.VITE_API_URL as string) || 'http://localhost:3006/api';
     
     try {
-      await fetch('http://localhost:3006/api/auth/forgot-password', {
+      await fetch(`${API_URL}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifier })
@@ -124,7 +125,8 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBack }) => {
                 }
                 setLoading(true);
                 try {
-                  const res = await fetch('http://localhost:3006/api/auth/reset-password', {
+                  const API_URL = ((import.meta as any)?.env?.VITE_API_URL as string) || 'http://localhost:3006/api';
+                  const res = await fetch(`${API_URL}/auth/reset-password`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ token: code, newPassword })

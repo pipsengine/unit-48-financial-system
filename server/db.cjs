@@ -5,7 +5,7 @@ const {
   MOCK_MEMBERS, MOCK_DUES_CONFIG, MOCK_LEDGER, MOCK_PAYMENTS, MOCK_EXPENSES, MOCK_AUDIT_LOGS 
 } = require('./mockData.cjs');
 
-const DB_PATH = path.resolve(__dirname, 'Unit48_Ps.sqlite');
+const DB_PATH = process.env.DATABASE_FILE_PATH || path.resolve(__dirname, 'Unit48_Ps.sqlite');
 
 class DbService {
   constructor() {

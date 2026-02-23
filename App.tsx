@@ -44,7 +44,13 @@ const App: React.FC = () => {
           
           // Verify token with server
           try {
-            const res = await fetch('http://localhost:3006/api/auth/heartbeat', {
+            let API_URL = ((import.meta as any)?.env?.VITE_API_URL as string) || 'http://localhost:3006/api';
+            try {
+              if (typeof window !== 'undefined' && window.location.protocol === 'https:' && API_URL.startsWith('http://') && !API_URL.includes('localhost')) {
+                API_URL = API_URL.replace('http://', 'https://');
+              }
+            } catch {}
+            const res = await fetch(`${API_URL}/auth/heartbeat`, {
                method: 'POST',
                headers: { 'Authorization': `Bearer ${savedToken}` }
             });
@@ -81,6 +87,12 @@ const App: React.FC = () => {
   }, [dbVersion]);
 
   const handleLogin = async (membershipId: string, password: string) => {
+    let API_URL = ((import.meta as any)?.env?.VITE_API_URL as string) || 'http://localhost:3006/api';
+    try {
+      if (typeof window !== 'undefined' && window.location.protocol === 'https:' && API_URL.startsWith('http://') && !API_URL.includes('localhost')) {
+        API_URL = API_URL.replace('http://', 'https://');
+      }
+    } catch {}
     // Check for lockout
     const lockoutUntil = localStorage.getItem('u48_lockout');
     if (lockoutUntil && parseInt(lockoutUntil) > Date.now()) {
@@ -90,11 +102,15 @@ const App: React.FC = () => {
     }
 
     try {
-      const res = await fetch('http://localhost:3006/api/auth/login', {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const res = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ membershipId, password })
+        body: JSON.stringify({ membershipId, password }),
+        signal: controller.signal
       });
+      clearTimeout(timeout);
       
       const data = await res.json();
       
@@ -113,6 +129,14 @@ const App: React.FC = () => {
         localStorage.removeItem('u48_login_attempts');
         localStorage.removeItem('u48_lockout');
       } else {
+         if (res.status === 401) {
+           alert(data.error || 'Invalid credentials');
+           return;
+         }
+         if (res.status >= 500) {
+           alert('Login failed: Server error');
+           return;
+         }
          // Handle failed attempt
         const attempts = parseInt(localStorage.getItem('u48_login_attempts') || '0') + 1;
         localStorage.setItem('u48_login_attempts', attempts.toString());
@@ -126,14 +150,21 @@ const App: React.FC = () => {
         }
       }
     } catch (e) {
-      alert("Login failed: Server unreachable or error occurred.");
+      const msg = (e as any)?.name === 'AbortError' ? 'Login failed: Timeout' : 'Login failed: Network unreachable';
+      alert(msg);
       console.error(e);
     }
   };
 
   const handleLogout = (reason?: string) => {
+    let API_URL = ((import.meta as any)?.env?.VITE_API_URL as string) || 'http://localhost:3006/api';
+    try {
+      if (typeof window !== 'undefined' && window.location.protocol === 'https:' && API_URL.startsWith('http://') && !API_URL.includes('localhost')) {
+        API_URL = API_URL.replace('http://', 'https://');
+      }
+    } catch {}
     if (token) {
-      fetch('http://localhost:3006/api/auth/logout', {
+      fetch(`${API_URL}/auth/logout`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       }).catch(console.error);
