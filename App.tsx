@@ -44,12 +44,7 @@ const App: React.FC = () => {
           
           // Verify token with server
           try {
-            let API_URL = ((import.meta as any)?.env?.VITE_API_URL as string) || 'http://localhost:3006/api';
-            try {
-              if (typeof window !== 'undefined' && window.location.protocol === 'https:' && API_URL.startsWith('http://') && !API_URL.includes('localhost')) {
-                API_URL = API_URL.replace('http://', 'https://');
-              }
-            } catch {}
+            const API_URL = '/api';
             const res = await fetch(`${API_URL}/auth/heartbeat`, {
                method: 'POST',
                headers: { 'Authorization': `Bearer ${savedToken}` }
@@ -87,12 +82,7 @@ const App: React.FC = () => {
   }, [dbVersion]);
 
   const handleLogin = async (membershipId: string, password: string) => {
-    let API_URL = ((import.meta as any)?.env?.VITE_API_URL as string) || 'http://localhost:3006/api';
-    try {
-      if (typeof window !== 'undefined' && window.location.protocol === 'https:' && API_URL.startsWith('http://') && !API_URL.includes('localhost')) {
-        API_URL = API_URL.replace('http://', 'https://');
-      }
-    } catch {}
+    const API_URL = '/api';
     // Check for lockout
     const lockoutUntil = localStorage.getItem('u48_lockout');
     if (lockoutUntil && parseInt(lockoutUntil) > Date.now()) {
@@ -157,12 +147,7 @@ const App: React.FC = () => {
   };
 
   const handleLogout = (reason?: string) => {
-    let API_URL = ((import.meta as any)?.env?.VITE_API_URL as string) || 'http://localhost:3006/api';
-    try {
-      if (typeof window !== 'undefined' && window.location.protocol === 'https:' && API_URL.startsWith('http://') && !API_URL.includes('localhost')) {
-        API_URL = API_URL.replace('http://', 'https://');
-      }
-    } catch {}
+    const API_URL = '/api';
     if (token) {
       fetch(`${API_URL}/auth/logout`, {
         method: 'POST',

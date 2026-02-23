@@ -21,7 +21,7 @@ const SessionManager: React.FC<SessionManagerProps> = ({ onLogout, token }) => {
     if (now - lastHeartbeatRef.current > HEARTBEAT_INTERVAL) {
       lastHeartbeatRef.current = now;
       
-      const API_URL = ((import.meta as any)?.env?.VITE_API_URL as string) || 'http://localhost:3006/api';
+      const API_URL = '/api';
       fetch(`${API_URL}/auth/heartbeat`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
