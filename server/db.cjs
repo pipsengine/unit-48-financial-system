@@ -9,17 +9,35 @@ const DB_PATH = process.env.DATABASE_FILE_PATH || path.resolve(__dirname, 'Unit4
 
 class DbService {
   constructor() {
-    this.db = new sqlite3.Database(DB_PATH, (err) => {
-      if (err) {
-        console.error('Could not connect to database', err);
-      } else {
-        // console.log('Connected to SQLite database: Unit48_Ps');
-        this.init();
-      }
-    });
+    this.isLibsql = !!(process.env.LIBSQL_URL || process.env.TURSO_DB_URL || process.env.DATABASE_URL);
+    this.client = null;
+    if (this.isLibsql) {
+      this.db = null;
+      this.init();
+    } else {
+      this.db = new sqlite3.Database(DB_PATH, (err) => {
+        if (err) {
+          console.error('Could not connect to database', err);
+        } else {
+          this.init();
+        }
+      });
+    }
   }
 
-  run(sql, params = []) {
+  async run(sql, params = []) {
+    if (this.isLibsql) {
+      try {
+        const res = await this.client.execute({ sql, args: params });
+        const id = Number(res.lastInsertRowid ?? res.lastInsertRowId ?? 0) || undefined;
+        const changes = res.rowsAffected ?? (Array.isArray(res.rows) ? res.rows.length : 0);
+        return { id, changes };
+      } catch (err) {
+        console.error('Error running sql ' + sql);
+        console.error(err);
+        throw err;
+      }
+    }
     return new Promise((resolve, reject) => {
       this.db.run(sql, params, function (err) {
         if (err) {
@@ -33,7 +51,17 @@ class DbService {
     });
   }
 
-  get(sql, params = []) {
+  async get(sql, params = []) {
+    if (this.isLibsql) {
+      try {
+        const res = await this.client.execute({ sql, args: params });
+        return Array.isArray(res.rows) && res.rows.length > 0 ? res.rows[0] : undefined;
+      } catch (err) {
+        console.error('Error running sql: ' + sql);
+        console.error(err);
+        throw err;
+      }
+    }
     return new Promise((resolve, reject) => {
       this.db.get(sql, params, (err, result) => {
         if (err) {
@@ -47,7 +75,17 @@ class DbService {
     });
   }
 
-  all(sql, params = []) {
+  async all(sql, params = []) {
+    if (this.isLibsql) {
+      try {
+        const res = await this.client.execute({ sql, args: params });
+        return res.rows || [];
+      } catch (err) {
+        console.error('Error running sql: ' + sql);
+        console.error(err);
+        throw err;
+      }
+    }
     return new Promise((resolve, reject) => {
       this.db.all(sql, params, (err, rows) => {
         if (err) {
@@ -76,11 +114,16 @@ class DbService {
 
   async init() {
     try {
+      if (this.isLibsql) {
+        const { createClient } = await import('@libsql/client');
+        const url = process.env.LIBSQL_URL || process.env.TURSO_DB_URL || process.env.DATABASE_URL;
+        const authToken = process.env.LIBSQL_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN || process.env.DATABASE_AUTH_TOKEN;
+        this.client = createClient({ url, authToken });
+      }
       await this.ensureColumn('ledger_entry', 'category', 'TEXT');
       await this.ensureColumn('ledger_entry', 'applied_financial_year', 'INTEGER');
       await this.ensureColumn('ledger_entry', 'posting_type', 'TEXT');
 
-      // MIGRATION: Backfill missing data for existing live records
       console.log('Running migrations to backfill data...');
       
       // 1. Backfill Applied Financial Year from Effective Date
@@ -303,13 +346,15 @@ class DbService {
         )
       `);
 
-      // Seed if empty
       const memberCount = await this.get("SELECT count(*) as count FROM member");
       if (memberCount.count === 0) {
-        console.log("Seeding database...");
-        await this.seed();
+        if (this.isLibsql) {
+          console.log("Remote database detected; skipping automatic seed.");
+        } else {
+          console.log("Seeding database...");
+          await this.seed();
+        }
       } else {
-        // Ensure dues_config is seeded (migration fix)
         const duesCount = await this.get("SELECT count(*) as count FROM dues_config");
         if (duesCount.count === 0) {
            console.log("Seeding missing dues_config...");
